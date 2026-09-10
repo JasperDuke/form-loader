@@ -1,0 +1,22 @@
+{
+  "name": "convoy",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Convoy — queued file dispatch",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n api,web -c gray,white \"npm run dev -w api\" \"npm run dev -w web\"",
+    "dev:api": "npm run dev -w api",
+    "dev:web": "npm run dev -w web",
+    "build": "npm run build -w web",
+    "start": "pm2 start ecosystem.config.cjs",
+    "stop": "pm2 delete ecosystem.config.cjs",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

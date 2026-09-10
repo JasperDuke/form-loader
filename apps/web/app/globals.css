@@ -1,0 +1,48 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  background: #f3f2ee;
+  color: #121212;
+  letter-spacing: -0.02em;
+}
+
+::selection {
+  background: #121212;
+  color: #f3f2ee;
+}
+
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-clear {
+  display: none;
+}
+
+.mono-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.mono-scroll::-webkit-scrollbar-thumb {
+  background: #c8c5bd;
+  border-radius: 99px;
+}
+
+.pulse-dot {
+  animation: pulse-dot 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
