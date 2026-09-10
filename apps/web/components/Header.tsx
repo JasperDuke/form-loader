@@ -15,13 +15,13 @@ export function Header({ activeTab, onTabChange }: Props) {
       <div className="mx-auto flex max-w-[1440px] items-center justify-between px-5 py-5 md:px-10">
         <div className="flex items-center gap-3">
           <div className="flex h-9 w-9 items-center justify-center rounded-full bg-ink text-paper">
-            <span className="text-xs font-medium">C</span>
+            <span className="text-xs font-medium">Q</span>
           </div>
           <div>
             <p className="text-[10px] font-medium uppercase tracking-[0.24em] text-muted">
-              File dispatch
+              Atenxion
             </p>
-            <h1 className="font-serif text-3xl leading-none">Convoy</h1>
+            <h1 className="font-serif text-3xl leading-none">QueueDrop</h1>
           </div>
         </div>
         <button
@@ -44,7 +44,7 @@ export function Header({ activeTab, onTabChange }: Props) {
                 : "border-transparent text-muted hover:text-ink"
             }`}
           >
-            {tab === "dispatch" ? "New dispatch" : "History"}
+            {tab === "dispatch" ? "Upload" : "History"}
           </button>
         ))}
       </nav>

@@ -70,7 +70,7 @@ async function start() {
   const server = http.createServer(app);
   attachLive(server);
   server.listen(PORT, () => {
-    console.log(`Convoy API on ${PUBLIC_ORIGIN}`);
+    console.log(`Atenxion QueueDrop API on ${PUBLIC_ORIGIN}`);
     resumePendingJobs().catch((error) => {
       console.error("Failed to resume jobs:", error);
     });

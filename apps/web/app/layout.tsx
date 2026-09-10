@@ -10,8 +10,8 @@ const figtree = Figtree({
 });
 
 export const metadata: Metadata = {
-  title: "Convoy — queued file dispatch",
-  description: "Upload files, queue them in batches, and dispatch to Atenxion.",
+  title: "Atenxion QueueDrop",
+  description: "Drop files into the queue and send them to Atenxion.",
 };
 
 export default function RootLayout({

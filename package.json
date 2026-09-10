@@ -2,7 +2,7 @@
   "name": "convoy",
   "private": true,
   "version": "1.0.0",
-  "description": "Convoy — queued file dispatch",
+  "description": "Atenxion QueueDrop — queued file uploads",
   "workspaces": [
     "apps/*"
   ],
