@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev --port 3019",
     "build": "next build",
-    "start": "next start --port 3019"
+    "start": "next start"
   },
   "dependencies": {
     "mammoth": "^1.9.0",
