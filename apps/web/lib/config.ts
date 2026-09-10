@@ -1,8 +1,4 @@
-import {
-  CONFIG_STORAGE_KEY,
-  type AppConfig,
-  normalizeAtenxionUrl,
-} from "./types";
+import { apiBase, type AppConfig, normalizeAtenxionUrl } from "./types";
 
 export const EMPTY_CONFIG: AppConfig = {
   atenxionUrl: "",
@@ -11,18 +7,20 @@ export const EMPTY_CONFIG: AppConfig = {
   waitTime: 5,
 };
 
-export function loadConfig(): AppConfig {
-  if (typeof window === "undefined") return EMPTY_CONFIG;
+export async function loadConfig(): Promise<AppConfig> {
   try {
-    const raw = window.localStorage.getItem(CONFIG_STORAGE_KEY);
-    if (!raw) return EMPTY_CONFIG;
-    const parsed = JSON.parse(raw) as Partial<AppConfig>;
+    const response = await fetch(`${apiBase()}/api/config`, {
+      cache: "no-store",
+    });
+    if (!response.ok) throw new Error("Could not load configuration.");
+    const body = (await response.json()) as { config?: Partial<AppConfig> };
+    const config = body.config || {};
     return {
-      atenxionUrl: String(parsed.atenxionUrl || ""),
-      atenxionToken: String(parsed.atenxionToken || ""),
-      batchSize: Number(parsed.batchSize) || 10,
-      waitTime: Number.isFinite(Number(parsed.waitTime))
-        ? Number(parsed.waitTime)
+      atenxionUrl: String(config.atenxionUrl || ""),
+      atenxionToken: String(config.atenxionToken || ""),
+      batchSize: Number(config.batchSize) || 10,
+      waitTime: Number.isFinite(Number(config.waitTime))
+        ? Number(config.waitTime)
         : 5,
     };
   } catch {
@@ -30,15 +28,26 @@ export function loadConfig(): AppConfig {
   }
 }
 
-export function saveConfig(config: AppConfig) {
+export async function saveConfig(config: AppConfig) {
   const next: AppConfig = {
     atenxionUrl: normalizeAtenxionUrl(config.atenxionUrl),
     atenxionToken: config.atenxionToken.trim(),
     batchSize: Number(config.batchSize),
     waitTime: Number(config.waitTime),
   };
-  window.localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(next));
-  return next;
+  const response = await fetch(`${apiBase()}/api/config`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(next),
+  });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => ({}))) as {
+      error?: string;
+    };
+    throw new Error(body.error || "Could not save configuration.");
+  }
+  const body = (await response.json()) as { config: AppConfig };
+  return body.config;
 }
 
 export function configReady(config: AppConfig) {

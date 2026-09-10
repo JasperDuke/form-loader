@@ -27,10 +27,6 @@ export async function uploadFiles(files: File[]) {
 export async function startAnalyze(payload: {
   fileIds: string[];
   jobDescription: string;
-  atenxionUrl: string;
-  atenxionToken: string;
-  batchSize: number;
-  waitTime: number;
 }) {
   const response = await fetch(`${apiBase()}/api/analyze`, {
     method: "POST",

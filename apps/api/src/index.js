@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import express from "express";
 import mongoose from "mongoose";
 import { filesRouter, uploadsDir } from "./routes/files.js";
+import { configRouter } from "./routes/config.js";
 import { jobsRouter } from "./routes/jobs.js";
 import { resumePendingJobs } from "./services/queue.js";
 
@@ -42,6 +43,7 @@ app.get("/api/health", (_req, res) => {
 });
 
 app.use("/api", filesRouter(PUBLIC_ORIGIN));
+app.use("/api", configRouter());
 app.use("/api", jobsRouter());
 
 app.use((error, _req, res, _next) => {

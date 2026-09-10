@@ -1,6 +1,7 @@
 import express from "express";
 import fs from "fs";
 import path from "path";
+import { ConfigModel } from "../models/Config.js";
 import { FileModel } from "../models/File.js";
 import { JobModel } from "../models/Job.js";
 import { uploadsDir } from "./files.js";
@@ -20,19 +21,16 @@ export function jobsRouter() {
       const {
         fileIds,
         jobDescription = "",
-        atenxionUrl,
-        atenxionToken,
-        batchSize,
-        waitTime,
       } = req.body || {};
 
-      const url = normalizeAtenxionUrl(atenxionUrl);
-      const token = String(atenxionToken || "").trim();
+      const savedConfig = await ConfigModel.findById("primary").lean();
+      const url = normalizeAtenxionUrl(savedConfig?.atenxionUrl);
+      const token = String(savedConfig?.atenxionToken || "").trim();
       const ids = Array.isArray(fileIds)
         ? fileIds.map(String).filter((id) => id && id !== "undefined")
         : [];
-      const size = Number(batchSize);
-      const wait = Number(waitTime);
+      const size = Number(savedConfig?.batchSize);
+      const wait = Number(savedConfig?.waitTime);
 
       if (!url || !token) {
         res.status(400).json({

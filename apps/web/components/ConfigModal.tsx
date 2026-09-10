@@ -10,6 +10,7 @@ export function ConfigModal() {
   const [draft, setDraft] = useState<AppConfig>(config);
   const [showToken, setShowToken] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -30,13 +31,25 @@ export function ConfigModal() {
 
   if (!open) return null;
 
-  function onSave() {
+  async function onSave() {
     const message = validateConfig(draft);
     if (message) {
       setError(message);
       return;
     }
-    persist(draft);
+    setSaving(true);
+    setError(null);
+    try {
+      await persist(draft);
+    } catch (saveError) {
+      setError(
+        saveError instanceof Error
+          ? saveError.message
+          : "Could not save configuration."
+      );
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -57,7 +70,7 @@ export function ConfigModal() {
           Configuration
         </h2>
         <p className="mt-1 text-sm text-muted">
-          These values are stored in this browser and used for every dispatch.
+          These values are stored on the server and used for every dispatch.
         </p>
 
         <div className="mt-6 space-y-4">
@@ -159,10 +172,11 @@ export function ConfigModal() {
           </button>
           <button
             type="button"
+            disabled={saving}
             onClick={onSave}
             className="rounded-md border border-ink bg-ink px-4 py-2 text-sm uppercase tracking-[0.16em] text-paper hover:bg-transparent hover:text-ink"
           >
-            Save Configuration
+            {saving ? "Saving…" : "Save Configuration"}
           </button>
         </div>
       </div>

@@ -3,7 +3,6 @@ export const MAX_FILE_BYTES = 50 * 1024 * 1024;
 export const MAX_TOTAL_BYTES = 1024 * 1024 * 1024;
 export const ACCEPT_EXTENSIONS = [".pdf", ".docx", ".xlsx"] as const;
 export const ACCEPT_ATTR = ".pdf,.docx,.xlsx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-export const CONFIG_STORAGE_KEY = "convoy.config";
 
 export type AppConfig = {
   atenxionUrl: string;

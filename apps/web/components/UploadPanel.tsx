@@ -10,7 +10,6 @@ import {
   MAX_FILES,
   formatBytes,
   isAllowedFile,
-  normalizeAtenxionUrl,
   type FileRecord,
 } from "@/lib/types";
 import { useConfig } from "./ConfigProvider";
@@ -28,7 +27,7 @@ type Props = {
 };
 
 export function UploadPanel({ onDispatched }: Props) {
-  const { config, setOpen } = useConfig();
+  const { config, loading: configLoading, setOpen } = useConfig();
   const inputRef = useRef<HTMLInputElement>(null);
   const replaceMode = useRef(false);
   const [items, setItems] = useState<Staged[]>([]);
@@ -90,6 +89,10 @@ export function UploadPanel({ onDispatched }: Props) {
 
   async function onUpload() {
     setBanner(null);
+    if (configLoading) {
+      setBanner("Loading configuration…");
+      return;
+    }
     if (!configReady(config)) {
       setNeedConfig(true);
       return;
@@ -149,10 +152,6 @@ export function UploadPanel({ onDispatched }: Props) {
       const job = await startAnalyze({
         fileIds: uploaded.map((file) => file._id),
         jobDescription: "",
-        atenxionUrl: normalizeAtenxionUrl(config.atenxionUrl),
-        atenxionToken: config.atenxionToken.trim(),
-        batchSize: Number(config.batchSize),
-        waitTime: Number(config.waitTime),
       });
       setItems([]);
       setBusy(null);
