@@ -17,6 +17,7 @@
     "docker:down": "docker compose down"
   },
   "devDependencies": {
-    "concurrently": "^9.1.2"
+    "concurrently": "^9.1.2",
+    "pm2": "^7.0.4"
   }
 }

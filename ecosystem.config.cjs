@@ -3,9 +3,8 @@ module.exports = {
     {
       name: "convoy-api",
       cwd: "./apps/api",
-      script: "npm",
-      args: "run start",
-      interpreter: "none",
+      script: "src/index.js",
+      interpreter: "node",
       env: {
         NODE_ENV: "production",
         API_PORT: 3020,
@@ -16,12 +15,13 @@ module.exports = {
     {
       name: "convoy-web",
       cwd: "./apps/web",
-      script: "npm",
-      args: "run start",
-      interpreter: "none",
+      script: "../../node_modules/next/dist/bin/next",
+      args: "start --port 3019",
+      interpreter: "node",
       env: {
         NODE_ENV: "production",
         PORT: 3019,
+        HOSTNAME: "0.0.0.0",
         NEXT_PUBLIC_API_URL: "https://api-form.atenxion.ai",
       },
       max_memory_restart: "512M",
