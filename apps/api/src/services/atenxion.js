@@ -19,6 +19,7 @@ export async function triggerAgent({
       event_id: eventId,
       jobDescription: jobDescription || "",
       attachments,
+      file_urls: attachments,
     }),
   });
 

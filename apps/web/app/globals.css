@@ -37,6 +37,81 @@ input[type="password"]::-ms-clear {
   animation: pulse-dot 1.2s ease-in-out infinite;
 }
 
+.document-sheet {
+  width: min(820px, calc(100% - 48px));
+  min-height: calc(100% - 48px);
+  margin: 24px auto;
+  padding: 56px 64px;
+  background: #fff;
+  border: 1px solid #dedcd6;
+}
+
+.prose-preview {
+  color: #242424;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.prose-preview h1,
+.prose-preview h2,
+.prose-preview h3 {
+  margin: 0 0 16px;
+  color: #121212;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.prose-preview h1 {
+  font-size: 28px;
+}
+
+.prose-preview h2 {
+  font-size: 22px;
+}
+
+.prose-preview h3 {
+  font-size: 17px;
+}
+
+.prose-preview p {
+  margin: 0 0 12px;
+}
+
+.prose-preview ul,
+.prose-preview ol {
+  margin: 0 0 16px;
+  padding-left: 24px;
+}
+
+.prose-preview table {
+  width: 100%;
+  margin: 8px 0 16px;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.prose-preview td,
+.prose-preview th {
+  border: 1px solid #d8d6d0;
+  padding: 8px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.prose-preview th {
+  background: #f3f2ee;
+  font-weight: 600;
+}
+
+@media (max-width: 640px) {
+  .document-sheet {
+    width: calc(100% - 24px);
+    min-height: calc(100% - 24px);
+    margin: 12px auto;
+    padding: 28px 24px;
+  }
+}
+
 @keyframes pulse-dot {
   0%,
   100% {

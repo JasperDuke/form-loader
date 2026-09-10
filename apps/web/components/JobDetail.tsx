@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { cancelJob, downloadUrl } from "@/lib/api";
+import { cancelJob, deleteJob, downloadUrl } from "@/lib/api";
 import {
   formatBytes,
   hostOf,
@@ -15,15 +15,17 @@ type Props = {
   job: JobRecord;
   onBack: () => void;
   onUpdated: (job: JobRecord) => void;
+  onDeleted: () => void;
 };
 
 function statusLabel(status: string) {
   return status.replace("_", " ");
 }
 
-export function JobDetail({ job, onBack, onUpdated }: Props) {
+export function JobDetail({ job, onBack, onUpdated, onDeleted }: Props) {
   const [preview, setPreview] = useState<FileRecord | null>(null);
   const [cancelling, setCancelling] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [openBatch, setOpenBatch] = useState<string | null>(
     job.batches.find((batch) =>
@@ -53,6 +55,26 @@ export function JobDetail({ job, onBack, onUpdated }: Props) {
     }
   }
 
+  async function onDelete() {
+    if (
+      !window.confirm(
+        "Delete this history and permanently remove all related files?"
+      )
+    ) {
+      return;
+    }
+    setDeleting(true);
+    setError(null);
+    try {
+      await deleteJob(job._id);
+      onDeleted();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Delete failed.");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   return (
     <div className="overflow-hidden rounded-lg border border-line bg-white shadow-[0_14px_40px_rgba(18,18,18,0.05)]">
       <div className="border-b border-line px-6 py-6 md:px-10">
@@ -71,16 +93,28 @@ export function JobDetail({ job, onBack, onUpdated }: Props) {
               {job.batchSize} per batch · {job.waitTime}s wait · {job.files.length} files
             </p>
           </div>
-          {canCancel ? (
-            <button
-              type="button"
-              disabled={cancelling}
-              onClick={onCancel}
-              className="rounded-md border border-ink px-4 py-2 text-xs font-medium uppercase tracking-[0.14em] hover:bg-ink hover:text-paper disabled:opacity-50"
-            >
-              {cancelling ? "Cancelling" : "Cancel remaining"}
-            </button>
-          ) : null}
+          <div className="flex items-center gap-2">
+            {canCancel ? (
+              <button
+                type="button"
+                disabled={cancelling || deleting}
+                onClick={onCancel}
+                className="rounded-md border border-ink px-4 py-2 text-xs font-medium uppercase tracking-[0.14em] hover:bg-ink hover:text-paper disabled:opacity-50"
+              >
+                {cancelling ? "Cancelling" : "Cancel remaining"}
+              </button>
+            ) : null}
+            {!isActiveStatus(job.status) ? (
+              <button
+                type="button"
+                disabled={deleting}
+                onClick={onDelete}
+                className="rounded-md border border-line px-4 py-2 text-xs font-medium uppercase tracking-[0.14em] text-muted hover:border-ink hover:text-ink disabled:opacity-50"
+              >
+                {deleting ? "Deleting" : "Delete history"}
+              </button>
+            ) : null}
+          </div>
         </div>
         <p className="mt-3 text-sm">
           {progress.sent}/{progress.total} batches sent · {statusLabel(job.status)}

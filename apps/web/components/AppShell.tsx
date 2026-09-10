@@ -71,6 +71,10 @@ export function AppShell() {
               <JobDetail
                 job={selected}
                 onBack={() => setSelectedId(null)}
+                onDeleted={() => {
+                  setSelectedId(null);
+                  refresh();
+                }}
                 onUpdated={(job) => {
                   setJobs((current) =>
                     current.map((item) => (item._id === job._id ? job : item))

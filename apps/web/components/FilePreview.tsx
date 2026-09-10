@@ -65,8 +65,8 @@ export function FilePreview({ file, onClose }: Props) {
         aria-label="Close preview"
         onClick={onClose}
       />
-      <div className="relative flex h-[90vh] w-full max-w-5xl flex-col border border-ink bg-paper shadow-[8px_8px_0_0_#121212]">
-        <div className="flex items-center justify-between gap-4 border-b border-ink px-4 py-3">
+      <div className="relative flex h-[90vh] w-full max-w-5xl flex-col rounded-lg border border-line bg-paper">
+        <div className="flex items-center justify-between gap-4 border-b border-line px-5 py-4">
           <div className="min-w-0">
             <p className="truncate font-medium">{file.originalName}</p>
             <p className="text-xs text-muted">{formatBytes(file.size)}</p>
@@ -74,20 +74,20 @@ export function FilePreview({ file, onClose }: Props) {
           <div className="flex items-center gap-2">
             <a
               href={downloadUrl(file._id)}
-              className="border border-ink px-3 py-1.5 text-xs uppercase tracking-[0.14em] hover:bg-ink hover:text-paper"
+              className="rounded-md border border-line px-3 py-1.5 text-xs font-medium uppercase tracking-[0.14em] hover:border-ink hover:bg-wash"
             >
               Download
             </a>
             <button
               type="button"
               onClick={onClose}
-              className="px-3 py-1.5 text-xs uppercase tracking-[0.14em]"
+              className="rounded-md px-3 py-1.5 text-xs font-medium uppercase tracking-[0.14em] text-muted hover:bg-wash hover:text-ink"
             >
               Close
             </button>
           </div>
         </div>
-        <div className="min-h-0 flex-1 overflow-auto bg-white">
+        <div className="min-h-0 flex-1 overflow-auto bg-[#e9e8e4]">
           {ext === ".pdf" ? (
             <iframe
               title={file.originalName}
@@ -95,14 +95,16 @@ export function FilePreview({ file, onClose }: Props) {
               className="h-full min-h-[70vh] w-full"
             />
           ) : loading ? (
-            <p className="p-6 text-sm text-muted">Preparing preview…</p>
+            <p className="p-8 text-sm text-muted">Preparing preview…</p>
           ) : error ? (
-            <p className="p-6 text-sm">{error}</p>
+            <p className="p-8 text-sm">{error}</p>
           ) : (
-            <div
-              className="prose-preview p-6 text-sm [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-line [&_td]:px-2 [&_td]:py-1 [&_th]:border [&_th]:border-line [&_th]:px-2 [&_th]:py-1"
-              dangerouslySetInnerHTML={{ __html: html || "" }}
-            />
+            <div className="document-sheet">
+              <div
+                className="prose-preview"
+                dangerouslySetInnerHTML={{ __html: html || "" }}
+              />
+            </div>
           )}
         </div>
       </div>

@@ -1,6 +1,9 @@
 import express from "express";
+import fs from "fs";
+import path from "path";
 import { FileModel } from "../models/File.js";
 import { JobModel } from "../models/Job.js";
+import { uploadsDir } from "./files.js";
 import { enqueueJob } from "../services/queue.js";
 import { createEventId, MAX_FILES, normalizeAtenxionUrl } from "../utils.js";
 
@@ -132,6 +135,32 @@ export function jobsRouter() {
       return;
     }
     res.json({ job });
+  });
+
+  router.delete("/jobs/:id", async (req, res) => {
+    const job = await JobModel.findById(req.params.id).select("status files");
+    if (!job) {
+      res.status(404).json({ error: "Job not found." });
+      return;
+    }
+
+    if (["queued", "sending", "waiting"].includes(job.status)) {
+      res.status(409).json({
+        error: "Cancel the active dispatch before deleting its history.",
+      });
+      return;
+    }
+
+    const files = await FileModel.find({ _id: { $in: job.files } }).select(
+      "storedName"
+    );
+    for (const file of files) {
+      fs.rmSync(path.join(uploadsDir, file.storedName), { force: true });
+    }
+
+    await FileModel.deleteMany({ _id: { $in: job.files } });
+    await JobModel.deleteOne({ _id: job._id });
+    res.status(204).send();
   });
 
   router.post("/jobs/:id/cancel", async (req, res) => {

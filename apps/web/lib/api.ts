@@ -65,6 +65,13 @@ export async function cancelJob(id: string) {
   return body.job;
 }
 
+export async function deleteJob(id: string) {
+  const response = await fetch(`${apiBase()}/api/jobs/${id}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) throw new Error(await readError(response));
+}
+
 export function downloadUrl(fileId: string) {
   return `${apiBase()}/api/files/${fileId}/download`;
 }

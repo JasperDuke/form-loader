@@ -26,7 +26,7 @@ app.use(
   "/files",
   cors({ origin: true }),
   express.static(uploadsDir, {
-    fallthrough: false,
+    fallthrough: true,
     setHeaders(res) {
       res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
     },
