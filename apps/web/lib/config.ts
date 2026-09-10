@@ -1,11 +1,41 @@
-import { apiBase, type AppConfig, normalizeAtenxionUrl } from "./types";
+import { apiBase, type AppConfig, type DestinationConfig, normalizeAtenxionUrl } from "./types";
+
+export const EMPTY_DESTINATION: DestinationConfig = {
+  atenxionUrl: "",
+  temporalUrl: "",
+  atenxionToken: "",
+};
 
 export const EMPTY_CONFIG: AppConfig = {
-  atenxionUrl: "",
-  atenxionToken: "",
-  batchSize: 10,
-  waitTime: 5,
+  servers: [{ ...EMPTY_DESTINATION }],
+  maxConcurrent: 4,
+  includeDocId: false,
 };
+
+function asServers(config: Partial<AppConfig> & {
+  atenxionUrl?: string;
+  temporalUrl?: string;
+  atenxionToken?: string;
+  batchSize?: number;
+}): DestinationConfig[] {
+  if (Array.isArray(config.servers) && config.servers.length) {
+    return config.servers.map((server) => ({
+      atenxionUrl: String(server.atenxionUrl || ""),
+      temporalUrl: String(server.temporalUrl || ""),
+      atenxionToken: String(server.atenxionToken || ""),
+    }));
+  }
+  if (config.atenxionUrl || config.temporalUrl || config.atenxionToken) {
+    return [
+      {
+        atenxionUrl: String(config.atenxionUrl || ""),
+        temporalUrl: String(config.temporalUrl || ""),
+        atenxionToken: String(config.atenxionToken || ""),
+      },
+    ];
+  }
+  return [{ ...EMPTY_DESTINATION }];
+}
 
 export async function loadConfig(): Promise<AppConfig> {
   try {
@@ -13,15 +43,12 @@ export async function loadConfig(): Promise<AppConfig> {
       cache: "no-store",
     });
     if (!response.ok) throw new Error("Could not load configuration.");
-    const body = (await response.json()) as { config?: Partial<AppConfig> };
+    const body = (await response.json()) as { config?: Partial<AppConfig> & { batchSize?: number } };
     const config = body.config || {};
     return {
-      atenxionUrl: String(config.atenxionUrl || ""),
-      atenxionToken: String(config.atenxionToken || ""),
-      batchSize: Number(config.batchSize) || 10,
-      waitTime: Number.isFinite(Number(config.waitTime))
-        ? Number(config.waitTime)
-        : 5,
+      servers: asServers(config),
+      maxConcurrent: Number(config.maxConcurrent || config.batchSize) || 4,
+      includeDocId: Boolean(config.includeDocId),
     };
   } catch {
     return EMPTY_CONFIG;
@@ -30,10 +57,13 @@ export async function loadConfig(): Promise<AppConfig> {
 
 export async function saveConfig(config: AppConfig) {
   const next: AppConfig = {
-    atenxionUrl: normalizeAtenxionUrl(config.atenxionUrl),
-    atenxionToken: config.atenxionToken.trim(),
-    batchSize: Number(config.batchSize),
-    waitTime: Number(config.waitTime),
+    servers: config.servers.map((server) => ({
+      atenxionUrl: normalizeAtenxionUrl(server.atenxionUrl),
+      temporalUrl: normalizeAtenxionUrl(server.temporalUrl),
+      atenxionToken: server.atenxionToken.trim(),
+    })),
+    maxConcurrent: Number(config.maxConcurrent),
+    includeDocId: Boolean(config.includeDocId),
   };
   const response = await fetch(`${apiBase()}/api/config`, {
     method: "PUT",
@@ -47,37 +77,49 @@ export async function saveConfig(config: AppConfig) {
     throw new Error(body.error || "Could not save configuration.");
   }
   const body = (await response.json()) as { config: AppConfig };
-  return body.config;
+  return {
+    servers: asServers(body.config),
+    maxConcurrent: Number(body.config.maxConcurrent) || 4,
+    includeDocId: Boolean(body.config.includeDocId),
+  };
 }
 
 export function configReady(config: AppConfig) {
-  return Boolean(
-    normalizeAtenxionUrl(config.atenxionUrl) && config.atenxionToken.trim()
+  return config.servers.some(
+    (server) =>
+      normalizeAtenxionUrl(server.atenxionUrl) &&
+      normalizeAtenxionUrl(server.temporalUrl) &&
+      server.atenxionToken.trim()
   );
 }
 
 export function validateConfig(config: AppConfig) {
-  const url = normalizeAtenxionUrl(config.atenxionUrl);
-  const token = config.atenxionToken.trim();
-  const batchSize = Number(config.batchSize);
-  const waitTime = Number(config.waitTime);
+  const maxConcurrent = Number(config.maxConcurrent);
+  if (!config.servers.length) return "Add at least one destination.";
+  if (!Number.isInteger(maxConcurrent) || maxConcurrent < 1 || maxConcurrent > 500) {
+    return "Max concurrent APIs must be between 1 and 500.";
+  }
 
-  if (!url || !token) {
-    return "Please configure the Atenxion URL and token first.";
-  }
-  try {
-    const parsed = new URL(url);
-    if (!["http:", "https:"].includes(parsed.protocol)) {
-      return "Atenxion URL must start with http or https.";
+  for (const [index, server] of config.servers.entries()) {
+    const label = `Destination ${index + 1}`;
+    const url = normalizeAtenxionUrl(server.atenxionUrl);
+    const temporalUrl = normalizeAtenxionUrl(server.temporalUrl);
+    const token = server.atenxionToken.trim();
+    if (!url || !temporalUrl || !token) {
+      return `${label} needs a backend URL, Temporal URL, and token.`;
     }
-  } catch {
-    return "Atenxion URL is invalid.";
-  }
-  if (!Number.isInteger(batchSize) || batchSize < 1 || batchSize > 500) {
-    return "Batch size must be between 1 and 500.";
-  }
-  if (!Number.isFinite(waitTime) || waitTime < 0) {
-    return "Wait time must be 0 or greater.";
+    try {
+      const parsed = new URL(url);
+      const temporal = new URL(temporalUrl);
+      if (
+        !["http:", "https:"].includes(parsed.protocol) ||
+        !["http:", "https:"].includes(temporal.protocol)
+      ) {
+        return `${label} URLs must start with http or https.`;
+      }
+    } catch {
+      return `${label} has an invalid URL.`;
+    }
   }
   return null;
 }

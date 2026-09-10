@@ -1,11 +1,14 @@
+import http from "http";
 import fs from "fs";
 import cors from "cors";
 import dotenv from "dotenv";
 import express from "express";
 import mongoose from "mongoose";
-import { filesRouter, uploadsDir } from "./routes/files.js";
+import { uploadsDir } from "./paths.js";
+import { filesRouter } from "./routes/files.js";
 import { configRouter } from "./routes/config.js";
 import { jobsRouter } from "./routes/jobs.js";
+import { attachLive } from "./services/live.js";
 import { resumePendingJobs } from "./services/queue.js";
 
 dotenv.config();
@@ -64,7 +67,9 @@ async function start() {
     process.exit(1);
   }
 
-  const server = app.listen(PORT, () => {
+  const server = http.createServer(app);
+  attachLive(server);
+  server.listen(PORT, () => {
     console.log(`Convoy API on ${PUBLIC_ORIGIN}`);
     resumePendingJobs().catch((error) => {
       console.error("Failed to resume jobs:", error);

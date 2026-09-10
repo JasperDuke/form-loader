@@ -1,8 +1,12 @@
 import { JobModel } from "../models/Job.js";
 import { triggerAgent } from "./atenxion.js";
-import { sleep } from "../utils.js";
+import { emitJob } from "./live.js";
+import { removeStoredFiles } from "./storage.js";
+import { isSuccessfulWorkflow, isTerminalWorkflow, pollWorkflow } from "./temporal.js";
+import { POLL_INTERVAL_MS, sleep } from "../utils.js";
 
 const processing = new Set();
+const jobLocks = new Map();
 
 export function enqueueJob(jobId) {
   const id = String(jobId);
@@ -18,167 +22,413 @@ export function enqueueJob(jobId) {
 }
 
 export async function resumePendingJobs() {
-  const jobs = await JobModel.find({
+  const pending = await JobModel.find({
     status: { $in: ["queued", "sending", "waiting"] },
   }).select("_id");
 
-  for (const job of jobs) {
+  for (const job of pending) {
     enqueueJob(job._id);
   }
+
+  const leftover = await JobModel.find({
+    filesDeleted: { $ne: true },
+    status: { $in: ["completed", "failed", "partial", "cancelled"] },
+  }).select("files servers batches status");
+
+  for (const job of leftover) {
+    if (!allProcessed(job)) continue;
+    await removeStoredFiles(job.files);
+    job.filesDeleted = true;
+    await job.save();
+    await emitJob(job._id);
+  }
+}
+
+export function withJobLock(jobId, fn) {
+  const key = String(jobId);
+  const previous = jobLocks.get(key) || Promise.resolve();
+  const current = previous.catch(() => {}).then(fn);
+  jobLocks.set(key, current);
+  current.finally(() => {
+    if (jobLocks.get(key) === current) jobLocks.delete(key);
+  });
+  return current;
 }
 
 async function loadJob(id) {
-  return JobModel.findById(id).select("+atenxionToken").populate("files").populate("batches.files");
+  return JobModel.findById(id)
+    .select("+atenxionToken +servers.atenxionToken")
+    .populate("files")
+    .populate("servers.items.file")
+    .populate("batches.files");
 }
 
-async function isCancelled(id) {
-  const job = await JobModel.findById(id).select("status cancelledAt");
-  return !job || job.status === "cancelled" || Boolean(job.cancelledAt);
+function maxConcurrentOf(job) {
+  return Number(job.maxConcurrent || job.batchSize || 1);
 }
 
-async function waitWithCancel(jobId, seconds) {
-  const total = Math.max(0, Number(seconds) || 0) * 1000;
-  if (total === 0) return !(await isCancelled(jobId));
+function inFlightCount(server) {
+  return (server.items || []).filter((item) =>
+    ["sending", "polling"].includes(item.status)
+  ).length;
+}
 
-  const started = Date.now();
-  while (Date.now() - started < total) {
-    if (await isCancelled(jobId)) return false;
-    const remaining = total - (Date.now() - started);
-    await sleep(Math.min(250, remaining));
+function isTerminalItem(status) {
+  return ["sent", "failed", "cancelled"].includes(status);
+}
+
+function allItemsTerminal(job) {
+  if (job.servers?.length) {
+    return job.servers.every((server) =>
+      (server.items || []).every((item) => isTerminalItem(item.status))
+    );
   }
-  return !(await isCancelled(jobId));
+  const batches = job.batches || [];
+  return (
+    batches.length > 0 && batches.every((batch) => isTerminalItem(batch.status))
+  );
 }
 
-function publicStatus(job) {
-  const statuses = job.batches.map((batch) => batch.status);
+function allProcessed(job) {
+  if (job.servers?.length) {
+    return job.servers.every((server) =>
+      (server.items || []).every((item) => item.status === "sent" || item.status === "failed")
+    );
+  }
+  const batches = job.batches || [];
+  return (
+    batches.length > 0 &&
+    batches.every((batch) => batch.status === "sent" || batch.status === "failed")
+  );
+}
+
+function serverStatus(server, cancelled) {
+  const statuses = (server.items || []).map((item) => item.status);
   const sent = statuses.filter((status) => status === "sent").length;
   const failed = statuses.filter((status) => status === "failed").length;
-  const cancelled = statuses.filter((status) => status === "cancelled").length;
   const pending = statuses.filter((status) =>
-    ["pending", "sending"].includes(status)
+    ["pending", "sending", "polling"].includes(status)
   ).length;
-
-  if (job.cancelledAt || cancelled) {
-    return pending || statuses.includes("sending") ? "cancelled" : "cancelled";
-  }
+  if (cancelled && pending === 0) return "cancelled";
   if (pending === 0 && failed === 0) return "completed";
   if (pending === 0 && failed > 0 && sent > 0) return "partial";
   if (pending === 0 && failed > 0 && sent === 0) return "failed";
-  return job.status;
+  if (pending > 0) return "sending";
+  return server.status;
+}
+
+function jobStatusFromServers(job) {
+  const servers = job.servers || [];
+  const statuses = servers.map((server) => server.status);
+  if (job.cancelledAt && allItemsTerminal(job)) return "cancelled";
+  if (statuses.every((status) => status === "completed")) return "completed";
+  if (statuses.every((status) => status === "failed")) return "failed";
+  if (
+    statuses.every((status) =>
+      ["completed", "failed", "partial", "cancelled"].includes(status)
+    )
+  ) {
+    return "partial";
+  }
+  return "sending";
+}
+
+function progressSnapshot(job) {
+  return JSON.stringify({
+    status: job.status,
+    filesDeleted: job.filesDeleted,
+    servers: (job.servers || []).map((server) => ({
+      id: String(server._id),
+      status: server.status,
+      items: (server.items || []).map((item) => ({
+        id: String(item._id),
+        status: item.status,
+        error: item.error || "",
+        workflowId: item.workflowId || "",
+      })),
+    })),
+  });
+}
+
+function applyPollResult(item, result) {
+  item.polledAt = new Date();
+  if (result.error && !result.status) {
+    item.error = result.error;
+    return;
+  }
+  item.temporalStatus = result.workflowStatus || item.temporalStatus;
+  if (!result.ok) {
+    item.error = result.error || `Temporal responded ${result.status}`;
+    return;
+  }
+  if (!isTerminalWorkflow(result.workflowStatus)) return;
+  if (isSuccessfulWorkflow(result.workflowStatus)) {
+    item.status = "sent";
+    item.sentAt = new Date();
+    item.error = undefined;
+    return;
+  }
+  item.status = "failed";
+  item.error = result.workflowStatus || "Workflow failed.";
+}
+
+async function pollTargets(temporalUrl, atenxionToken, items) {
+  const results = [];
+  for (const item of items) {
+    try {
+      const result = await pollWorkflow({
+        temporalUrl,
+        atenxionToken,
+        workflowId: item.workflowId,
+        runId: item.runId,
+      });
+      results.push({ id: item.id, ...result });
+    } catch (error) {
+      results.push({
+        id: item.id,
+        error: error.message || "Temporal poll failed.",
+      });
+    }
+  }
+  return results;
+}
+
+async function startNextFile(jobId, serverId, itemId) {
+  const payload = await withJobLock(jobId, async () => {
+    const job = await loadJob(jobId);
+    if (!job) return null;
+    const server = job.servers.id(serverId);
+    const item = server?.items.id(itemId);
+    if (!item || item.status !== "pending") return null;
+
+    job.status = "sending";
+    server.status = "sending";
+    item.status = "sending";
+    await job.save();
+    await emitJob(job._id);
+
+    return {
+      atenxionUrl: server.atenxionUrl,
+      atenxionToken: server.atenxionToken,
+      eventId: item.eventId,
+      jobDescription: job.jobDescription,
+      attachments: item.file?.publicUrl ? [item.file.publicUrl] : [],
+      docId: job.includeDocId ? item.docId : undefined,
+    };
+  });
+
+  if (!payload) return;
+
+  try {
+    const result = await triggerAgent(payload);
+    await withJobLock(jobId, async () => {
+      const current = await loadJob(jobId);
+      if (!current) return;
+      const currentServer = current.servers.id(serverId);
+      const currentItem = currentServer.items.id(itemId);
+      currentItem.responseStatus = result.status;
+      currentItem.responseBody = result.body;
+      currentItem.workflowId = result.workflowId || undefined;
+      currentItem.runId = result.runId || undefined;
+
+      if (current.cancelledAt) {
+        currentItem.status = result.ok ? "cancelled" : "failed";
+        if (!result.ok) currentItem.error = `Atenxion responded ${result.status}`;
+      } else if (!result.ok) {
+        currentItem.status = "failed";
+        currentItem.error = `Atenxion responded ${result.status}`;
+      } else if (!result.workflowId || !result.runId) {
+        currentItem.status = "failed";
+        currentItem.error = "Trigger succeeded but workflow_id or run_id was missing.";
+      } else {
+        currentItem.status = "polling";
+        currentItem.error = undefined;
+      }
+      await current.save();
+      await emitJob(current._id);
+    });
+  } catch (error) {
+    await withJobLock(jobId, async () => {
+      const current = await loadJob(jobId);
+      if (!current) return;
+      const currentServer = current.servers.id(serverId);
+      const currentItem = currentServer.items.id(itemId);
+      currentItem.status = "failed";
+      currentItem.error = error.message || "Trigger request failed.";
+      await current.save();
+      await emitJob(current._id);
+    });
+  }
+}
+
+async function processServer(jobId, serverId) {
+  while (true) {
+    const targets = await withJobLock(jobId, async () => {
+      const job = await loadJob(jobId);
+      if (!job) return { stop: true };
+      const server = job.servers.id(serverId);
+      if (!server) return { stop: true };
+      return {
+        stop: false,
+        temporalUrl: server.temporalUrl,
+        atenxionToken: server.atenxionToken,
+        items: server.items
+          .filter((item) => item.status === "polling" && item.workflowId && item.runId)
+          .map((item) => ({
+            id: item._id,
+            workflowId: item.workflowId,
+            runId: item.runId,
+          })),
+      };
+    });
+
+    if (targets.stop) return;
+
+    const pollResults = await pollTargets(
+      targets.temporalUrl,
+      targets.atenxionToken,
+      targets.items
+    );
+
+    const step = await withJobLock(jobId, async () => {
+      const job = await loadJob(jobId);
+      if (!job) return { stop: true };
+      const server = job.servers.id(serverId);
+      if (!server) return { stop: true };
+
+      const before = progressSnapshot(job);
+      const cancelled = Boolean(job.cancelledAt);
+      if (cancelled) {
+        server.items.forEach((item) => {
+          if (item.status === "pending") item.status = "cancelled";
+        });
+      }
+
+      for (const result of pollResults) {
+        const item = server.items.id(result.id);
+        if (!item || item.status !== "polling") continue;
+        applyPollResult(item, result);
+      }
+
+      server.items.forEach((item) => {
+        if (item.status === "polling" && (!item.workflowId || !item.runId)) {
+          item.status = "failed";
+          item.error = "Missing workflow_id or run_id.";
+        }
+      });
+
+      server.status = serverStatus(server, cancelled);
+      await job.save();
+      if (before !== progressSnapshot(job)) await emitJob(job._id);
+
+      if (cancelled) {
+        return { stop: inFlightCount(server) === 0 };
+      }
+
+      const slots = Math.max(0, maxConcurrentOf(job) - inFlightCount(server));
+      const ids = [];
+      for (const item of server.items) {
+        if (ids.length >= slots) break;
+        if (item.status === "pending") ids.push(item._id);
+      }
+      return { stop: false, ids };
+    });
+
+    if (step.stop) return;
+
+    for (const itemId of step.ids || []) {
+      await startNextFile(jobId, serverId, itemId);
+    }
+
+    const done = await withJobLock(jobId, async () => {
+      const job = await loadJob(jobId);
+      if (!job) return true;
+      const server = job.servers.id(serverId);
+      if (!server) return true;
+      const pending = server.items.some((item) => item.status === "pending");
+      const inflight = inFlightCount(server) > 0;
+      server.status = serverStatus(server, Boolean(job.cancelledAt));
+      await job.save();
+      return !pending && !inflight;
+    });
+
+    if (done) return;
+    await sleep(POLL_INTERVAL_MS);
+  }
 }
 
 async function processJob(jobId) {
-  let job = await loadJob(jobId);
-  if (!job) return;
+  const ready = await withJobLock(jobId, async () => {
+    let job = await loadJob(jobId);
+    if (!job) return false;
 
-  if (["completed", "cancelled", "failed", "partial"].includes(job.status)) {
-    return;
-  }
+    if (["completed", "cancelled", "failed", "partial"].includes(job.status)) {
+      if (!job.filesDeleted && allProcessed(job)) {
+        await removeStoredFiles(job.files.map((file) => file._id || file));
+        job.filesDeleted = true;
+        await job.save();
+        await emitJob(job._id);
+      }
+      return false;
+    }
 
-  if (!job.startedAt) {
-    job.startedAt = new Date();
-    await job.save();
-  }
+    if (!job.startedAt) {
+      job.startedAt = new Date();
+    }
 
-  for (let i = 0; i < job.batches.length; i += 1) {
-    job = await loadJob(jobId);
-    if (!job) return;
+    if (!job.servers?.length && job.batches?.length) {
+      job.servers.push({
+        atenxionUrl: job.atenxionUrl,
+        temporalUrl: job.temporalUrl,
+        atenxionToken: job.atenxionToken,
+        status: "queued",
+        items: job.batches.map((batch) => ({
+          index: batch.index,
+          eventId: batch.eventId,
+          file: batch.files?.[0]?._id || batch.files?.[0],
+          status: batch.status,
+          docId: batch.docId,
+          workflowId: batch.workflowId,
+          runId: batch.runId,
+          temporalStatus: batch.temporalStatus,
+          error: batch.error,
+        })),
+      });
+    }
 
-    if (job.status === "cancelled" || job.cancelledAt) {
-      job.batches.forEach((batch) => {
-        if (["pending", "sending"].includes(batch.status)) {
-          batch.status = "cancelled";
+    (job.servers || []).forEach((server) => {
+      server.items.forEach((item) => {
+        if (item.status === "sending" && !item.workflowId && !item.runId) {
+          item.status = "pending";
         }
       });
-      job.status = "cancelled";
-      job.completedAt = job.completedAt || new Date();
-      await job.save();
-      return;
-    }
-
-    const batch = job.batches[i];
-    if (["sent", "cancelled"].includes(batch.status)) continue;
-
-    if (batch.status === "failed") continue;
-
-    job.status = "sending";
-    batch.status = "sending";
+    });
     await job.save();
+    return Boolean(job.servers?.length);
+  });
 
-    const attachments = (batch.files || []).map((file) => file.publicUrl);
+  if (!ready) return;
 
-    try {
-      const result = await triggerAgent({
-        atenxionUrl: job.atenxionUrl,
-        atenxionToken: job.atenxionToken,
-        eventId: batch.eventId,
-        jobDescription: job.jobDescription,
-        attachments,
-      });
+  const current = await loadJob(jobId);
+  if (!current?.servers?.length) return;
 
-      job = await loadJob(jobId);
-      const current = job.batches[i];
-      current.responseStatus = result.status;
-      current.responseBody = result.body;
+  await Promise.all(current.servers.map((server) => processServer(jobId, server._id)));
 
-      if (job.cancelledAt) {
-        current.status = result.ok ? "sent" : "failed";
-        current.sentAt = result.ok ? new Date() : undefined;
-        if (!result.ok) current.error = `Atenxion responded ${result.status}`;
-        job.batches.forEach((item, index) => {
-          if (index > i && ["pending", "sending"].includes(item.status)) {
-            item.status = "cancelled";
-          }
-        });
-        job.status = "cancelled";
-        job.completedAt = new Date();
-        await job.save();
-        return;
-      }
-
-      if (result.ok) {
-        current.status = "sent";
-        current.sentAt = new Date();
-        current.error = undefined;
-      } else {
-        current.status = "failed";
-        current.error = `Atenxion responded ${result.status}`;
-      }
-      await job.save();
-    } catch (error) {
-      job = await loadJob(jobId);
-      const current = job.batches[i];
-      current.status = "failed";
-      current.error = error.message || "Trigger request failed";
-      await job.save();
-    }
-
-    const remaining = job.batches
-      .slice(i + 1)
-      .some((item) => item.status === "pending");
-
-    if (remaining) {
-      job.status = "waiting";
-      await job.save();
-      const shouldContinue = await waitWithCancel(jobId, job.waitTime);
-      if (!shouldContinue) {
-        job = await loadJob(jobId);
-        job.batches.forEach((item) => {
-          if (["pending", "sending"].includes(item.status)) {
-            item.status = "cancelled";
-          }
-        });
-        job.status = "cancelled";
-        job.cancelledAt = job.cancelledAt || new Date();
-        job.completedAt = new Date();
-        await job.save();
-        return;
+  await withJobLock(jobId, async () => {
+    const job = await loadJob(jobId);
+    if (!job) return;
+    job.servers.forEach((server) => {
+      server.status = serverStatus(server, Boolean(job.cancelledAt));
+    });
+    job.status = jobStatusFromServers(job);
+    if (allItemsTerminal(job)) {
+      job.completedAt = job.completedAt || new Date();
+      if (!job.filesDeleted && allProcessed(job)) {
+        await removeStoredFiles(job.files.map((file) => file._id || file));
+        job.filesDeleted = true;
       }
     }
-  }
-
-  job = await loadJob(jobId);
-  job.status = publicStatus(job);
-  job.completedAt = new Date();
-  await job.save();
+    await job.save();
+    await emitJob(job._id);
+  });
 }

@@ -171,8 +171,8 @@ export function UploadPanel({ onDispatched }: Props) {
           </p>
           <h2 className="mt-2 font-serif text-4xl">Send a convoy</h2>
           <p className="mt-2 max-w-md text-sm leading-6 text-muted">
-            Drop your documents here. Convoy stores them, splits them into batches,
-            and sends them on schedule.
+            Drop your documents here. Each file is sent to every destination with
+            the same payload and the same Doc_ID. Max concurrent is per server.
           </p>
         </div>
         <div className="hidden text-right text-xs text-muted sm:block">
@@ -279,7 +279,7 @@ export function UploadPanel({ onDispatched }: Props) {
 
         {needConfig ? (
           <div className="mt-4 rounded-lg border border-ink bg-paper px-4 py-3 text-sm">
-            <p>Please configure the Atenxion URL and token first.</p>
+            <p>Please configure at least one Atenxion destination first.</p>
             <button
               type="button"
               onClick={() => setOpen(true)}
@@ -299,7 +299,9 @@ export function UploadPanel({ onDispatched }: Props) {
 
       <div className="flex items-center justify-between gap-4 border-t border-line bg-paper px-6 py-5 md:px-10">
         <p className="hidden text-xs text-muted sm:block">
-          {config.batchSize} files / batch · {config.waitTime}s between batches
+          {config.servers.length} destination{config.servers.length === 1 ? "" : "s"} ·{" "}
+          {config.maxConcurrent} max concurrent each
+          {config.includeDocId ? " · Doc_ID on" : ""}
         </p>
         <button
           type="button"

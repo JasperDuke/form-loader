@@ -1,4 +1,4 @@
-import { normalizeAtenxionUrl } from "../utils.js";
+import { extractWorkflowIds, normalizeUrl } from "../utils.js";
 
 export async function triggerAgent({
   atenxionUrl,
@@ -6,8 +6,18 @@ export async function triggerAgent({
   eventId,
   jobDescription,
   attachments,
+  docId,
 }) {
-  const url = `${normalizeAtenxionUrl(atenxionUrl)}/api/trigger/agent-trigger`;
+  const url = `${normalizeUrl(atenxionUrl)}/api/trigger/agent-trigger`;
+  const payload = {
+    event_id: eventId,
+    jobDescription: jobDescription || "",
+    attachments,
+    file_urls: attachments,
+  };
+  if (docId) {
+    payload.Doc_ID = docId;
+  }
 
   const response = await fetch(url, {
     method: "POST",
@@ -15,12 +25,7 @@ export async function triggerAgent({
       Authorization: atenxionToken,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      event_id: eventId,
-      jobDescription: jobDescription || "",
-      attachments,
-      file_urls: attachments,
-    }),
+    body: JSON.stringify(payload),
   });
 
   const text = await response.text();
@@ -31,9 +36,13 @@ export async function triggerAgent({
     body = { raw: text };
   }
 
+  const { workflowId, runId } = extractWorkflowIds(body);
+
   return {
     ok: response.ok,
     status: response.status,
     body,
+    workflowId,
+    runId,
   };
 }

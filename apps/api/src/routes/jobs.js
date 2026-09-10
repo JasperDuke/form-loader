@@ -1,51 +1,40 @@
 import express from "express";
-import fs from "fs";
-import path from "path";
 import { ConfigModel } from "../models/Config.js";
 import { FileModel } from "../models/File.js";
 import { JobModel } from "../models/Job.js";
-import { uploadsDir } from "./files.js";
-import { enqueueJob } from "../services/queue.js";
-import { createEventId, MAX_FILES, normalizeAtenxionUrl } from "../utils.js";
-
-const JOB_POPULATE = [
-  { path: "files" },
-  { path: "batches.files" },
-];
+import { enqueueJob, withJobLock } from "../services/queue.js";
+import { removeStoredFiles } from "../services/storage.js";
+import { emitJob, emitJobDeleted, JOB_POPULATE_PATHS } from "../services/live.js";
+import { normalizeServers } from "./config.js";
+import {
+  createDocId,
+  createEventId,
+  MAX_FILES,
+} from "../utils.js";
 
 export function jobsRouter() {
   const router = express.Router();
 
   router.post("/analyze", async (req, res) => {
     try {
-      const {
-        fileIds,
-        jobDescription = "",
-      } = req.body || {};
-
+      const { fileIds, jobDescription = "" } = req.body || {};
       const savedConfig = await ConfigModel.findById("primary").lean();
-      const url = normalizeAtenxionUrl(savedConfig?.atenxionUrl);
-      const token = String(savedConfig?.atenxionToken || "").trim();
+      const destinations = normalizeServers(savedConfig).filter(
+        (server) => server.atenxionUrl && server.temporalUrl && server.atenxionToken
+      );
       const ids = Array.isArray(fileIds)
         ? fileIds.map(String).filter((id) => id && id !== "undefined")
         : [];
-      const size = Number(savedConfig?.batchSize);
-      const wait = Number(savedConfig?.waitTime);
+      const maxConcurrent = Number(
+        savedConfig?.maxConcurrent || savedConfig?.batchSize
+      );
+      const includeDocId = Boolean(savedConfig?.includeDocId);
 
-      if (!url || !token) {
+      if (!destinations.length) {
         res.status(400).json({
-          error: "Please configure the Atenxion URL and token first.",
+          error:
+            "Please configure at least one Atenxion URL, Temporal URL, and token first.",
         });
-        return;
-      }
-
-      try {
-        const parsed = new URL(url);
-        if (!["http:", "https:"].includes(parsed.protocol)) {
-          throw new Error("invalid");
-        }
-      } catch {
-        res.status(400).json({ error: "Atenxion URL is invalid." });
         return;
       }
 
@@ -57,12 +46,14 @@ export function jobsRouter() {
         res.status(400).json({ error: "Maximum 500 files." });
         return;
       }
-      if (!Number.isInteger(size) || size < 1 || size > MAX_FILES) {
-        res.status(400).json({ error: "Batch size must be between 1 and 500." });
-        return;
-      }
-      if (!Number.isFinite(wait) || wait < 0) {
-        res.status(400).json({ error: "Wait time must be 0 or greater." });
+      if (
+        !Number.isInteger(maxConcurrent) ||
+        maxConcurrent < 1 ||
+        maxConcurrent > MAX_FILES
+      ) {
+        res.status(400).json({
+          error: "Max concurrent APIs must be between 1 and 500.",
+        });
         return;
       }
 
@@ -76,35 +67,47 @@ export function jobsRouter() {
         files.find((file) => file._id.toString() === id)
       );
 
-      const batches = [];
-      for (let i = 0; i < ordered.length; i += size) {
-        const slice = ordered.slice(i, i + size);
-        batches.push({
-          index: batches.length + 1,
+      const docIds = includeDocId
+        ? ordered.map(() => createDocId())
+        : ordered.map(() => undefined);
+
+      const servers = destinations.map((destination) => ({
+        atenxionUrl: destination.atenxionUrl,
+        temporalUrl: destination.temporalUrl,
+        atenxionToken: destination.atenxionToken,
+        status: "queued",
+        items: ordered.map((file, index) => ({
+          index: index + 1,
           eventId: createEventId(),
-          files: slice.map((file) => file._id),
+          file: file._id,
           status: "pending",
-        });
-      }
+          docId: docIds[index],
+        })),
+      }));
 
       const job = await JobModel.create({
         eventId: createEventId(),
         jobDescription: String(jobDescription || ""),
-        atenxionUrl: url,
-        atenxionToken: token,
-        batchSize: size,
-        waitTime: wait,
+        atenxionUrl: destinations[0].atenxionUrl,
+        temporalUrl: destinations[0].temporalUrl,
+        atenxionToken: destinations[0].atenxionToken,
+        maxConcurrent,
+        batchSize: maxConcurrent,
+        includeDocId,
+        waitTime: 0,
         status: "queued",
         files: ordered.map((file) => file._id),
-        batches,
+        servers,
+        batches: [],
       });
 
       enqueueJob(job._id);
 
       const created = await JobModel.findById(job._id)
-        .select("-atenxionToken")
-        .populate(JOB_POPULATE);
+        .select("-atenxionToken -servers.atenxionToken")
+        .populate(JOB_POPULATE_PATHS);
 
+      emitJob(job._id).catch(() => {});
       res.status(201).json({ job: created });
     } catch (error) {
       if (error?.name === "CastError") {
@@ -117,8 +120,8 @@ export function jobsRouter() {
 
   router.get("/jobs", async (_req, res) => {
     const jobs = await JobModel.find()
-      .select("-atenxionToken")
-      .populate(JOB_POPULATE)
+      .select("-atenxionToken -servers.atenxionToken")
+      .populate(JOB_POPULATE_PATHS)
       .sort({ createdAt: -1 })
       .limit(200);
     res.json({ jobs });
@@ -126,8 +129,8 @@ export function jobsRouter() {
 
   router.get("/jobs/:id", async (req, res) => {
     const job = await JobModel.findById(req.params.id)
-      .select("-atenxionToken")
-      .populate(JOB_POPULATE);
+      .select("-atenxionToken -servers.atenxionToken")
+      .populate(JOB_POPULATE_PATHS);
     if (!job) {
       res.status(404).json({ error: "Job not found." });
       return;
@@ -149,46 +152,54 @@ export function jobsRouter() {
       return;
     }
 
-    const files = await FileModel.find({ _id: { $in: job.files } }).select(
-      "storedName"
-    );
-    for (const file of files) {
-      fs.rmSync(path.join(uploadsDir, file.storedName), { force: true });
-    }
-
+    await removeStoredFiles(job.files);
     await FileModel.deleteMany({ _id: { $in: job.files } });
     await JobModel.deleteOne({ _id: job._id });
+    emitJobDeleted(job._id);
     res.status(204).send();
   });
 
   router.post("/jobs/:id/cancel", async (req, res) => {
-    const job = await JobModel.findById(req.params.id).select("-atenxionToken");
-    if (!job) {
-      res.status(404).json({ error: "Job not found." });
-      return;
-    }
+    try {
+      const populated = await withJobLock(req.params.id, async () => {
+        const job = await JobModel.findById(req.params.id).select(
+          "-atenxionToken -servers.atenxionToken"
+        );
+        if (!job) return null;
 
-    if (["completed", "cancelled", "failed", "partial"].includes(job.status)) {
-      const populated = await JobModel.findById(job._id)
-        .select("-atenxionToken")
-        .populate(JOB_POPULATE);
-      res.json({ job: populated });
-      return;
-    }
+        if (["completed", "cancelled", "failed", "partial"].includes(job.status)) {
+          return JobModel.findById(job._id)
+            .select("-atenxionToken -servers.atenxionToken")
+            .populate(JOB_POPULATE_PATHS);
+        }
 
-    job.cancelledAt = new Date();
-    job.batches.forEach((batch) => {
-      if (batch.status === "pending") {
-        batch.status = "cancelled";
+        job.cancelledAt = new Date();
+        job.status = "cancelled";
+        (job.servers || []).forEach((server) => {
+          server.items.forEach((item) => {
+            if (item.status === "pending") item.status = "cancelled";
+          });
+        });
+        (job.batches || []).forEach((batch) => {
+          if (batch.status === "pending") batch.status = "cancelled";
+        });
+        await job.save();
+
+        return JobModel.findById(job._id)
+          .select("-atenxionToken -servers.atenxionToken")
+          .populate(JOB_POPULATE_PATHS);
+      });
+
+      if (!populated) {
+        res.status(404).json({ error: "Job not found." });
+        return;
       }
-    });
-    job.status = "cancelled";
-    await job.save();
 
-    const populated = await JobModel.findById(job._id)
-      .select("-atenxionToken")
-      .populate(JOB_POPULATE);
-    res.json({ job: populated });
+      emitJob(populated._id).catch(() => {});
+      res.json({ job: populated });
+    } catch (error) {
+      res.status(500).json({ error: error.message || "Cancel failed." });
+    }
   });
 
   return router;

@@ -1,76 +1,112 @@
 import express from "express";
 import { ConfigModel } from "../models/Config.js";
-import { normalizeAtenxionUrl } from "../utils.js";
+import { normalizeUrl } from "../utils.js";
 
-const DEFAULT_CONFIG = {
+const EMPTY_SERVER = {
   atenxionUrl: "",
+  temporalUrl: "",
   atenxionToken: "",
-  batchSize: 10,
-  waitTime: 5,
 };
+
+function assertHttpUrl(value, label) {
+  const url = normalizeUrl(value);
+  const parsed = new URL(url);
+  if (!["http:", "https:"].includes(parsed.protocol)) {
+    throw new Error(`${label} must start with http or https.`);
+  }
+  return url;
+}
+
+export function normalizeServers(config) {
+  if (Array.isArray(config?.servers) && config.servers.length) {
+    return config.servers.map((server) => ({
+      _id: server._id,
+      atenxionUrl: server.atenxionUrl || "",
+      temporalUrl: server.temporalUrl || "",
+      atenxionToken: server.atenxionToken || "",
+    }));
+  }
+  if (config?.atenxionUrl || config?.temporalUrl || config?.atenxionToken) {
+    return [
+      {
+        atenxionUrl: config.atenxionUrl || "",
+        temporalUrl: config.temporalUrl || "",
+        atenxionToken: config.atenxionToken || "",
+      },
+    ];
+  }
+  return [{ ...EMPTY_SERVER }];
+}
+
+function publicConfig(config) {
+  return {
+    servers: normalizeServers(config).map((server) => ({
+      atenxionUrl: server.atenxionUrl,
+      temporalUrl: server.temporalUrl,
+      atenxionToken: server.atenxionToken,
+    })),
+    maxConcurrent: Number(config?.maxConcurrent || config?.batchSize || 4),
+    includeDocId: Boolean(config?.includeDocId),
+  };
+}
 
 export function configRouter() {
   const router = express.Router();
 
   router.get("/config", async (_req, res) => {
     const config = await ConfigModel.findById("primary").lean();
-    res.json({
-      config: config
-        ? {
-            atenxionUrl: config.atenxionUrl,
-            atenxionToken: config.atenxionToken,
-            batchSize: config.batchSize,
-            waitTime: config.waitTime,
-          }
-        : DEFAULT_CONFIG,
-    });
+    res.json({ config: publicConfig(config) });
   });
 
   router.put("/config", async (req, res) => {
     const body = req.body || {};
-    const atenxionUrl = normalizeAtenxionUrl(body.atenxionUrl);
-    const atenxionToken = String(body.atenxionToken || "").trim();
-    const batchSize = Number(body.batchSize);
-    const waitTime = Number(body.waitTime);
+    const maxConcurrent = Number(body.maxConcurrent ?? body.batchSize);
+    const includeDocId = Boolean(body.includeDocId);
+    const incoming = Array.isArray(body.servers) ? body.servers : [];
 
-    if (!atenxionUrl || !atenxionToken) {
-      res.status(400).json({
-        error: "Atenxion URL and token are required.",
-      });
+    if (!incoming.length) {
+      res.status(400).json({ error: "Add at least one Atenxion destination." });
       return;
     }
 
+    if (!Number.isInteger(maxConcurrent) || maxConcurrent < 1 || maxConcurrent > 500) {
+      res.status(400).json({ error: "Max concurrent APIs must be between 1 and 500." });
+      return;
+    }
+
+    let servers;
     try {
-      const parsed = new URL(atenxionUrl);
-      if (!["http:", "https:"].includes(parsed.protocol)) throw new Error();
-    } catch {
-      res.status(400).json({ error: "Atenxion URL is invalid." });
-      return;
-    }
-
-    if (!Number.isInteger(batchSize) || batchSize < 1 || batchSize > 500) {
-      res.status(400).json({ error: "Batch size must be between 1 and 500." });
-      return;
-    }
-    if (!Number.isFinite(waitTime) || waitTime < 0) {
-      res.status(400).json({ error: "Wait time must be 0 or greater." });
+      servers = incoming.map((server, index) => {
+        const label = `Destination ${index + 1}`;
+        const atenxionToken = String(server.atenxionToken || "").trim();
+        if (!server.atenxionUrl || !server.temporalUrl || !atenxionToken) {
+          throw new Error(`${label} needs a backend URL, Temporal URL, and token.`);
+        }
+        return {
+          atenxionUrl: assertHttpUrl(server.atenxionUrl, `${label} backend URL`),
+          temporalUrl: assertHttpUrl(server.temporalUrl, `${label} Temporal URL`),
+          atenxionToken,
+        };
+      });
+    } catch (error) {
+      res.status(400).json({ error: error.message || "Configuration is invalid." });
       return;
     }
 
     const config = await ConfigModel.findByIdAndUpdate(
       "primary",
-      { atenxionUrl, atenxionToken, batchSize, waitTime },
+      {
+        servers,
+        atenxionUrl: servers[0].atenxionUrl,
+        temporalUrl: servers[0].temporalUrl,
+        atenxionToken: servers[0].atenxionToken,
+        maxConcurrent,
+        includeDocId,
+      },
       { upsert: true, new: true, setDefaultsOnInsert: true }
     ).lean();
 
-    res.json({
-      config: {
-        atenxionUrl: config.atenxionUrl,
-        atenxionToken: config.atenxionToken,
-        batchSize: config.batchSize,
-        waitTime: config.waitTime,
-      },
-    });
+    res.json({ config: publicConfig(config) });
   });
 
   return router;

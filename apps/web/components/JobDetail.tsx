@@ -1,11 +1,17 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { cancelJob, deleteJob, downloadUrl } from "@/lib/api";
 import {
   formatBytes,
+  formatWhen,
   hostOf,
   isActiveStatus,
+  itemCounts,
+  jobServers,
+  statusLabel,
+  submissionCounts,
+  type DispatchItem,
   type FileRecord,
   type JobRecord,
 } from "@/lib/types";
@@ -18,36 +24,32 @@ type Props = {
   onDeleted: () => void;
 };
 
-function statusLabel(status: string) {
-  return status.replace("_", " ");
-}
-
 export function JobDetail({ job, onBack, onUpdated, onDeleted }: Props) {
+  const servers = jobServers(job);
+  const [tab, setTab] = useState(servers[0]?._id || "");
   const [preview, setPreview] = useState<FileRecord | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [openBatch, setOpenBatch] = useState<string | null>(
-    job.batches.find((batch) =>
-      ["sending", "pending", "waiting"].includes(batch.status)
-    )?._id || job.batches[0]?._id || null
-  );
 
-  const progress = useMemo(() => {
-    const sent = job.batches.filter((batch) => batch.status === "sent").length;
-    return { sent, total: job.batches.length };
-  }, [job.batches]);
+  useEffect(() => {
+    if (!servers.some((server) => server._id === tab) && servers[0]?._id) {
+      setTab(servers[0]._id);
+    }
+  }, [servers, tab]);
 
-  const canCancel =
-    isActiveStatus(job.status) &&
-    job.batches.some((batch) => ["pending", "sending"].includes(batch.status));
+  const selected = servers.find((server) => server._id === tab) || servers[0];
+  const totals = submissionCounts(job);
+  const selectedCounts = itemCounts(selected?.items || []);
+  const canCancel = isActiveStatus(job.status);
+  const overallProgress =
+    ((totals.done + totals.failed) / Math.max(totals.total, 1)) * 100;
 
   async function onCancel() {
     setCancelling(true);
     setError(null);
     try {
-      const next = await cancelJob(job._id);
-      onUpdated(next);
+      onUpdated(await cancelJob(job._id));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Cancel failed.");
     } finally {
@@ -56,13 +58,7 @@ export function JobDetail({ job, onBack, onUpdated, onDeleted }: Props) {
   }
 
   async function onDelete() {
-    if (
-      !window.confirm(
-        "Delete this history and permanently remove all related files?"
-      )
-    ) {
-      return;
-    }
+    if (!window.confirm("Delete this submission from history?")) return;
     setDeleting(true);
     setError(null);
     try {
@@ -75,22 +71,27 @@ export function JobDetail({ job, onBack, onUpdated, onDeleted }: Props) {
     }
   }
 
+  const created = useMemo(() => formatWhen(job.createdAt), [job.createdAt]);
+
   return (
-    <div className="overflow-hidden rounded-lg border border-line bg-white shadow-[0_14px_40px_rgba(18,18,18,0.05)]">
-      <div className="border-b border-line px-6 py-6 md:px-10">
+    <div className="overflow-hidden rounded-lg border border-line bg-white">
+      <div className="border-b border-line px-6 py-6 md:px-8">
         <button
           type="button"
           onClick={onBack}
           className="text-xs font-medium uppercase tracking-[0.14em] text-muted hover:text-ink"
         >
-          ← History
+          ← Submissions
         </button>
         <div className="mt-3 flex items-start justify-between gap-4">
-          <div>
-          <p className="font-mono text-sm">{job.eventId}</p>
-            <p className="mt-1 text-sm text-muted">{hostOf(job.atenxionUrl)}</p>
-            <p className="mt-1 text-xs uppercase tracking-[0.14em] text-muted">
-              {job.batchSize} per batch · {job.waitTime}s wait · {job.files.length} files
+          <div className="min-w-0">
+            <p className="truncate font-mono text-sm">{job.eventId}</p>
+            <p className="mt-1 text-sm text-muted">
+              {totals.files === 1 ? "1 file" : `${totals.files} files`} ·{" "}
+              {servers.length === 1
+                ? "1 destination"
+                : `${servers.length} destinations`}
+              {created ? ` · ${created}` : ""}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -103,8 +104,7 @@ export function JobDetail({ job, onBack, onUpdated, onDeleted }: Props) {
               >
                 {cancelling ? "Cancelling" : "Cancel remaining"}
               </button>
-            ) : null}
-            {!isActiveStatus(job.status) ? (
+            ) : (
               <button
                 type="button"
                 disabled={deleting}
@@ -113,93 +113,83 @@ export function JobDetail({ job, onBack, onUpdated, onDeleted }: Props) {
               >
                 {deleting ? "Deleting" : "Delete history"}
               </button>
-            ) : null}
+            )}
           </div>
         </div>
-        <p className="mt-3 text-sm">
-          {progress.sent}/{progress.total} batches sent · {statusLabel(job.status)}
+
+        <div className="mt-4 h-1 overflow-hidden rounded-full bg-line">
+          <div className="h-full bg-ink" style={{ width: `${overallProgress}%` }} />
+        </div>
+        <p className="mt-2 text-sm">
+          {statusLabel(job.status)} · {totals.done}/{totals.total} done
+          {totals.running ? ` · ${totals.running} running` : ""}
+          {totals.waiting ? ` · ${totals.waiting} waiting` : ""}
+          {totals.failed ? ` · ${totals.failed} failed` : ""}
         </p>
-        {job.jobDescription ? (
-          <p className="mt-2 text-sm text-muted">{job.jobDescription}</p>
+        {job.filesDeleted ? (
+          <p className="mt-1 text-xs text-muted">
+            Uploaded files were removed after every destination finished. History is kept.
+          </p>
         ) : null}
         {error ? <p className="mt-2 text-sm">{error}</p> : null}
       </div>
 
-      <div className="mono-scroll max-h-[calc(100vh-245px)] overflow-auto px-6 py-6 md:px-10">
-        <p className="text-[10px] font-medium uppercase tracking-[0.22em] text-muted">
-          Batches
-        </p>
-        <ul className="mt-3 space-y-2">
-          {job.batches.map((batch) => {
-            const open = openBatch === batch._id;
-            return (
-              <li key={batch._id} className="rounded-xl border border-line bg-paper/50">
-                <button
-                  type="button"
-                  onClick={() =>
-                    setOpenBatch((current) =>
-                      current === batch._id ? null : batch._id
-                    )
-                  }
-                  className="flex w-full items-center justify-between gap-3 px-3 py-3 text-left"
-                >
-                  <span className="text-sm">
-                    Batch {batch.index}
-                    <span className="ml-2 font-mono text-xs text-muted">
-                      {batch.eventId}
-                    </span>
-                  </span>
-                  <span
-                    className={`text-xs uppercase tracking-[0.14em] ${
-                      batch.status === "sending" || batch.status === "pending"
-                        ? "pulse-dot"
-                        : ""
-                    } ${batch.status === "cancelled" ? "line-through text-muted" : ""}`}
-                  >
-                    {batch.status}
-                  </span>
-                </button>
-                {open ? (
-                  <div className="border-t border-line px-3 py-3">
-                    {batch.error ? (
-                      <p className="mb-2 text-xs">{batch.error}</p>
-                    ) : null}
-                    {batch.responseStatus ? (
-                      <p className="mb-2 text-xs text-muted">
-                        Response {batch.responseStatus}
-                        {typeof batch.responseBody === "string"
-                          ? ` · ${batch.responseBody}`
-                          : batch.responseBody
-                            ? ` · ${JSON.stringify(batch.responseBody).slice(0, 180)}`
-                            : ""}
-                      </p>
-                    ) : null}
-                    <ul className="space-y-2">
-                      {batch.files.map((file) => (
-                        <FileRow
-                          key={file._id}
-                          file={file}
-                          onPreview={() => setPreview(file)}
-                        />
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-              </li>
-            );
-          })}
-        </ul>
+      <div
+        role="tablist"
+        aria-label="Destinations"
+        className="flex gap-0 overflow-auto border-b border-line px-6 md:px-8"
+      >
+        {servers.map((server, index) => {
+          const counts = itemCounts(server.items);
+          const active = selected?._id === server._id;
+          return (
+            <button
+              key={server._id}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => setTab(server._id)}
+              className={`min-w-[180px] flex-1 border-b-2 px-3 py-3 text-left ${
+                active ? "border-ink" : "border-transparent text-muted"
+              }`}
+            >
+              <p className="text-[10px] font-medium uppercase tracking-[0.16em]">
+                Destination {index + 1}
+              </p>
+              <p className="mt-1 truncate text-sm">{hostOf(server.atenxionUrl)}</p>
+              <p className="mt-1 text-[11px] uppercase tracking-[0.14em]">
+                {counts.done}/{counts.total} done
+                {counts.running ? ` · ${counts.running} running` : ""}
+                {counts.waiting && !counts.running ? ` · ${counts.waiting} waiting` : ""}
+              </p>
+            </button>
+          );
+        })}
+      </div>
 
-        <p className="mt-8 text-[11px] uppercase tracking-[0.22em] text-muted">
-          All files
-        </p>
-        <ul className="mt-3 divide-y divide-line border border-line bg-white">
-          {job.files.map((file) => (
-            <li key={file._id} className="px-3 py-2">
-              <FileRow file={file} onPreview={() => setPreview(file)} />
-            </li>
-          ))}
-        </ul>
+      <div className="mono-scroll max-h-[calc(100vh-320px)] overflow-auto px-6 py-6 md:px-8">
+        {selected ? (
+          <>
+            <div className="mb-4 flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted">
+              <span>{hostOf(selected.atenxionUrl)}</span>
+              <span>{statusLabel(selected.status)}</span>
+              <span>{selectedCounts.running} running</span>
+              <span>{selectedCounts.waiting} waiting</span>
+              <span>{selectedCounts.done} done</span>
+              {selectedCounts.failed ? <span>{selectedCounts.failed} failed</span> : null}
+            </div>
+            <ul className="divide-y divide-line rounded-md border border-line">
+              {selected.items.map((item) => (
+                <ItemRow
+                  key={item._id}
+                  item={item}
+                  filesRemoved={Boolean(job.filesDeleted)}
+                  onPreview={(file) => setPreview(file)}
+                />
+              ))}
+            </ul>
+          </>
+        ) : null}
       </div>
 
       {preview ? (
@@ -209,34 +199,69 @@ export function JobDetail({ job, onBack, onUpdated, onDeleted }: Props) {
   );
 }
 
-function FileRow({
-  file,
+function ItemRow({
+  item,
+  filesRemoved,
   onPreview,
 }: {
-  file: FileRecord;
-  onPreview: () => void;
+  item: DispatchItem;
+  filesRemoved: boolean;
+  onPreview: (file: FileRecord) => void;
 }) {
+  const file = item.file || item.files?.[0];
+  const live =
+    item.status === "sending" ||
+    item.status === "pending" ||
+    item.status === "polling";
+  const gone = filesRemoved || Boolean(file?.removedAt);
+
   return (
-    <div className="flex items-center justify-between gap-3">
-      <div className="min-w-0">
-        <p className="truncate text-sm">{file.originalName}</p>
-        <p className="text-xs text-muted">{formatBytes(file.size)}</p>
+    <li className="px-4 py-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate text-sm">
+            {file?.originalName || `File ${item.index}`}
+          </p>
+          <p className="mt-1 text-xs text-muted">
+            {file ? formatBytes(file.size) : ""}
+            {item.docId ? ` · ${item.docId}` : ""}
+          </p>
+          {item.workflowId ? (
+            <p className="mt-1 truncate font-mono text-[11px] text-muted">
+              {item.workflowId}
+            </p>
+          ) : null}
+          {item.error ? <p className="mt-1 text-xs">{item.error}</p> : null}
+        </div>
+        <div className="flex shrink-0 items-center gap-3">
+          <span
+            className={`text-[11px] uppercase tracking-[0.14em] ${
+              live ? "pulse-dot" : ""
+            } ${item.status === "cancelled" ? "line-through text-muted" : ""}`}
+          >
+            {statusLabel(item.status)}
+          </span>
+          {file && !gone ? (
+            <>
+              <button
+                type="button"
+                onClick={() => onPreview(file)}
+                className="text-xs uppercase tracking-[0.14em] underline underline-offset-4"
+              >
+                Preview
+              </button>
+              <a
+                href={downloadUrl(file._id)}
+                className="text-xs uppercase tracking-[0.14em] underline underline-offset-4"
+              >
+                Download
+              </a>
+            </>
+          ) : gone ? (
+            <span className="text-xs text-muted">Removed</span>
+          ) : null}
+        </div>
       </div>
-      <div className="flex shrink-0 items-center gap-2">
-        <button
-          type="button"
-          onClick={onPreview}
-          className="text-xs uppercase tracking-[0.14em] underline underline-offset-4"
-        >
-          Preview
-        </button>
-        <a
-          href={downloadUrl(file._id)}
-          className="text-xs uppercase tracking-[0.14em] underline underline-offset-4"
-        >
-          Download
-        </a>
-      </div>
-    </div>
+    </li>
   );
 }

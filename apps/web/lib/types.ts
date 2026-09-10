@@ -4,11 +4,16 @@ export const MAX_TOTAL_BYTES = 1024 * 1024 * 1024;
 export const ACCEPT_EXTENSIONS = [".pdf", ".docx", ".xlsx"] as const;
 export const ACCEPT_ATTR = ".pdf,.docx,.xlsx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
-export type AppConfig = {
+export type DestinationConfig = {
   atenxionUrl: string;
+  temporalUrl: string;
   atenxionToken: string;
-  batchSize: number;
-  waitTime: number;
+};
+
+export type AppConfig = {
+  servers: DestinationConfig[];
+  maxConcurrent: number;
+  includeDocId: boolean;
 };
 
 export type FileRecord = {
@@ -19,21 +24,42 @@ export type FileRecord = {
   mimeType: string;
   size: number;
   publicUrl: string;
+  removedAt?: string;
   createdAt?: string;
 };
 
-export type BatchStatus = "pending" | "sending" | "sent" | "failed" | "cancelled";
+export type ItemStatus =
+  | "pending"
+  | "sending"
+  | "polling"
+  | "sent"
+  | "failed"
+  | "cancelled";
 
-export type BatchRecord = {
+export type DispatchItem = {
   _id: string;
   index: number;
   eventId: string;
-  files: FileRecord[];
-  status: BatchStatus;
+  file?: FileRecord;
+  files?: FileRecord[];
+  status: ItemStatus;
+  docId?: string;
+  workflowId?: string;
+  runId?: string;
+  temporalStatus?: string;
+  polledAt?: string;
   sentAt?: string;
   responseStatus?: number;
   responseBody?: unknown;
   error?: string;
+};
+
+export type ServerRun = {
+  _id: string;
+  atenxionUrl: string;
+  temporalUrl: string;
+  status: string;
+  items: DispatchItem[];
 };
 
 export type JobStatus =
@@ -50,11 +76,16 @@ export type JobRecord = {
   eventId: string;
   jobDescription: string;
   atenxionUrl: string;
+  temporalUrl?: string;
+  maxConcurrent?: number;
   batchSize: number;
-  waitTime: number;
+  includeDocId?: boolean;
+  waitTime?: number;
   status: JobStatus;
   files: FileRecord[];
-  batches: BatchRecord[];
+  servers?: ServerRun[];
+  batches?: DispatchItem[];
+  filesDeleted?: boolean;
   startedAt?: string;
   completedAt?: string;
   cancelledAt?: string;
@@ -64,6 +95,10 @@ export type JobRecord = {
 
 export function apiBase() {
   return process.env.NEXT_PUBLIC_API_URL || "http://localhost:3020";
+}
+
+export function wsUrl() {
+  return `${apiBase().replace(/^http/, "ws")}/ws`;
 }
 
 export function normalizeAtenxionUrl(url: string) {
@@ -99,4 +134,67 @@ export function fileExtension(name: string) {
 
 export function isAllowedFile(file: File) {
   return [".pdf", ".docx", ".xlsx"].includes(fileExtension(file.name));
+}
+
+export function concurrencyOf(job: JobRecord) {
+  return Number(job.maxConcurrent || job.batchSize || 1);
+}
+
+export function jobServers(job: JobRecord): ServerRun[] {
+  if (job.servers?.length) return job.servers;
+  return [
+    {
+      _id: "legacy",
+      atenxionUrl: job.atenxionUrl,
+      temporalUrl: job.temporalUrl || "",
+      status: job.status,
+      items: (job.batches || []).map((batch) => ({
+        ...batch,
+        file: batch.file || batch.files?.[0],
+      })),
+    },
+  ];
+}
+
+export function formatWhen(value?: string) {
+  if (!value) return "";
+  return new Date(value).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+export function itemCounts(items: DispatchItem[]) {
+  return {
+    total: items.length,
+    done: items.filter((item) => item.status === "sent").length,
+    finished: items.filter((item) =>
+      ["sent", "failed", "cancelled"].includes(item.status)
+    ).length,
+    running: items.filter((item) =>
+      ["sending", "polling"].includes(item.status)
+    ).length,
+    waiting: items.filter((item) => item.status === "pending").length,
+    failed: items.filter((item) => item.status === "failed").length,
+  };
+}
+
+export function submissionCounts(job: JobRecord) {
+  const servers = jobServers(job);
+  const items = servers.flatMap((server) => server.items);
+  return {
+    ...itemCounts(items),
+    servers: servers.length,
+    files: job.files?.length || 0,
+  };
+}
+
+export function statusLabel(status: string) {
+  if (status === "sent") return "done";
+  if (status === "polling") return "running";
+  if (status === "sending") return "sending";
+  if (status === "pending") return "waiting";
+  return status.replace(/_/g, " ");
 }

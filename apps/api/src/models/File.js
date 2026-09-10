@@ -7,6 +7,7 @@ const fileSchema = new mongoose.Schema(
     mimeType: { type: String, default: "application/octet-stream" },
     size: { type: Number, required: true },
     publicUrl: { type: String, required: true },
+    removedAt: Date,
   },
   { timestamps: true }
 );

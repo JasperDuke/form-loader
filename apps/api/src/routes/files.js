@@ -1,9 +1,9 @@
 import fs from "fs";
 import path from "path";
-import { fileURLToPath } from "url";
 import express from "express";
 import multer from "multer";
 import { FileModel } from "../models/File.js";
+import { uploadsDir } from "../paths.js";
 import {
   MAX_FILE_BYTES,
   MAX_TOTAL_BYTES,
@@ -12,9 +12,6 @@ import {
   isAllowedFile,
   publicFileUrl,
 } from "../utils.js";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-export const uploadsDir = path.resolve(__dirname, "../../uploads");
 
 fs.mkdirSync(uploadsDir, { recursive: true });
 
@@ -110,7 +107,7 @@ export function filesRouter(publicOrigin) {
 
   router.get("/files/:id/download", async (req, res) => {
     const doc = await FileModel.findById(req.params.id);
-    if (!doc) {
+    if (!doc || doc.removedAt) {
       res.status(404).json({ error: "File not found." });
       return;
     }
