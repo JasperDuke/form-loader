@@ -1,5 +1,11 @@
 import { extractWorkflowIds, normalizeUrl } from "../utils.js";
 
+function applyAdditionalPayload(payload, pairs) {
+  for (const pair of pairs || []) {
+    payload[pair.key] = pair.value;
+  }
+}
+
 export async function triggerAgent({
   atenxionUrl,
   atenxionToken,
@@ -7,6 +13,7 @@ export async function triggerAgent({
   jobDescription,
   attachments,
   docId,
+  additionalPayload,
 }) {
   const url = `${normalizeUrl(atenxionUrl)}/api/trigger/agent-trigger`;
   const payload = {
@@ -18,6 +25,7 @@ export async function triggerAgent({
   if (docId) {
     payload.Doc_ID = docId;
   }
+  applyAdditionalPayload(payload, additionalPayload);
 
   const response = await fetch(url, {
     method: "POST",

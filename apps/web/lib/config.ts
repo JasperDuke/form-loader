@@ -1,4 +1,10 @@
-import { apiBase, type AppConfig, type DestinationConfig, normalizeAtenxionUrl } from "./types";
+import {
+  apiBase,
+  type AppConfig,
+  type DestinationConfig,
+  type PayloadPair,
+  normalizeAtenxionUrl,
+} from "./types";
 
 export const EMPTY_DESTINATION: DestinationConfig = {
   atenxionUrl: "",
@@ -6,11 +12,22 @@ export const EMPTY_DESTINATION: DestinationConfig = {
   atenxionToken: "",
 };
 
+export const EMPTY_PAYLOAD_PAIR: PayloadPair = { key: "", value: "" };
+
 export const EMPTY_CONFIG: AppConfig = {
   servers: [{ ...EMPTY_DESTINATION }],
   maxConcurrent: 4,
   includeDocId: false,
+  additionalPayload: [],
 };
+
+function asAdditionalPayload(input: unknown): PayloadPair[] {
+  if (!Array.isArray(input)) return [];
+  return input.map((row) => ({
+    key: String((row as PayloadPair)?.key ?? ""),
+    value: String((row as PayloadPair)?.value ?? ""),
+  }));
+}
 
 function asServers(config: Partial<AppConfig> & {
   atenxionUrl?: string;
@@ -49,6 +66,7 @@ export async function loadConfig(): Promise<AppConfig> {
       servers: asServers(config),
       maxConcurrent: Number(config.maxConcurrent || config.batchSize) || 4,
       includeDocId: Boolean(config.includeDocId),
+      additionalPayload: asAdditionalPayload(config.additionalPayload),
     };
   } catch {
     return EMPTY_CONFIG;
@@ -64,6 +82,7 @@ export async function saveConfig(config: AppConfig) {
     })),
     maxConcurrent: Number(config.maxConcurrent),
     includeDocId: Boolean(config.includeDocId),
+    additionalPayload: asAdditionalPayload(config.additionalPayload),
   };
   const response = await fetch(`${apiBase()}/api/config`, {
     method: "PUT",
@@ -81,6 +100,28 @@ export async function saveConfig(config: AppConfig) {
     servers: asServers(body.config),
     maxConcurrent: Number(body.config.maxConcurrent) || 4,
     includeDocId: Boolean(body.config.includeDocId),
+    additionalPayload: asAdditionalPayload(body.config.additionalPayload),
+  };
+}
+
+export async function saveAdditionalPayload(pairs: PayloadPair[]) {
+  const response = await fetch(`${apiBase()}/api/config/additional-payload`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ additionalPayload: asAdditionalPayload(pairs) }),
+  });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => ({}))) as {
+      error?: string;
+    };
+    throw new Error(body.error || "Could not save additional payload.");
+  }
+  const body = (await response.json()) as { config: AppConfig };
+  return {
+    servers: asServers(body.config),
+    maxConcurrent: Number(body.config.maxConcurrent) || 4,
+    includeDocId: Boolean(body.config.includeDocId),
+    additionalPayload: asAdditionalPayload(body.config.additionalPayload),
   };
 }
 

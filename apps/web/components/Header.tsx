@@ -8,7 +8,7 @@ type Props = {
 };
 
 export function Header({ activeTab, onTabChange }: Props) {
-  const { setOpen } = useConfig();
+  const { setOpen, setPayloadOpen } = useConfig();
 
   return (
     <header className="border-b border-line bg-paper">
@@ -24,13 +24,22 @@ export function Header({ activeTab, onTabChange }: Props) {
             <h1 className="font-serif text-3xl leading-none">QueueDrop</h1>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          className="rounded-md border border-line bg-white px-4 py-2 text-[11px] font-medium uppercase tracking-[0.14em] transition hover:border-ink hover:bg-wash"
-        >
-          Configuration
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setPayloadOpen(true)}
+            className="rounded-md border border-line bg-white px-4 py-2 text-[11px] font-medium uppercase tracking-[0.14em] transition hover:border-ink hover:bg-wash"
+          >
+            Add Extra
+          </button>
+          <button
+            type="button"
+            onClick={() => setOpen(true)}
+            className="rounded-md border border-line bg-white px-4 py-2 text-[11px] font-medium uppercase tracking-[0.14em] transition hover:border-ink hover:bg-wash"
+          >
+            Configuration
+          </button>
+        </div>
       </div>
       <nav className="mx-auto flex max-w-[1440px] gap-7 px-5 md:px-10" aria-label="Main navigation">
         {(["dispatch", "history"] as const).map((tab) => (

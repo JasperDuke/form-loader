@@ -1,5 +1,13 @@
 import mongoose from "mongoose";
 
+const payloadPairSchema = new mongoose.Schema(
+  {
+    key: { type: String, default: "" },
+    value: { type: String, default: "" },
+  },
+  { _id: false }
+);
+
 const itemSchema = new mongoose.Schema(
   {
     index: { type: Number, required: true },
@@ -71,6 +79,7 @@ const jobSchema = new mongoose.Schema(
     maxConcurrent: { type: Number, required: true },
     batchSize: { type: Number, required: true },
     includeDocId: { type: Boolean, default: false },
+    additionalPayload: { type: [payloadPairSchema], default: [] },
     waitTime: { type: Number, default: 0 },
     status: {
       type: String,

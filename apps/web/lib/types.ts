@@ -10,10 +10,16 @@ export type DestinationConfig = {
   atenxionToken: string;
 };
 
+export type PayloadPair = {
+  key: string;
+  value: string;
+};
+
 export type AppConfig = {
   servers: DestinationConfig[];
   maxConcurrent: number;
   includeDocId: boolean;
+  additionalPayload: PayloadPair[];
 };
 
 export type FileRecord = {

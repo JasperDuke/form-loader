@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { fetchJobs } from "@/lib/api";
 import { isActiveStatus, wsUrl, type JobRecord } from "@/lib/types";
+import { AdditionalPayloadModal } from "./AdditionalPayloadModal";
 import { ConfigModal } from "./ConfigModal";
 import { Header } from "./Header";
 import { HistoryList } from "./HistoryList";
@@ -141,6 +142,7 @@ export function AppShell() {
         )}
       </main>
       <ConfigModal />
+      <AdditionalPayloadModal />
     </div>
   );
 }

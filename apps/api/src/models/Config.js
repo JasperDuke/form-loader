@@ -9,6 +9,14 @@ const serverConfigSchema = new mongoose.Schema(
   { _id: true }
 );
 
+const payloadPairSchema = new mongoose.Schema(
+  {
+    key: { type: String, default: "" },
+    value: { type: String, default: "" },
+  },
+  { _id: false }
+);
+
 const configSchema = new mongoose.Schema(
   {
     _id: { type: String, default: "primary" },
@@ -18,6 +26,7 @@ const configSchema = new mongoose.Schema(
     atenxionToken: { type: String, default: "" },
     maxConcurrent: { type: Number, default: 4 },
     includeDocId: { type: Boolean, default: false },
+    additionalPayload: { type: [payloadPairSchema], default: [] },
   },
   { timestamps: true }
 );

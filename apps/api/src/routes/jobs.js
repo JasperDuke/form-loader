@@ -5,7 +5,7 @@ import { JobModel } from "../models/Job.js";
 import { enqueueJob, withJobLock } from "../services/queue.js";
 import { removeStoredFiles } from "../services/storage.js";
 import { emitJob, emitJobDeleted, JOB_POPULATE_PATHS } from "../services/live.js";
-import { normalizeServers } from "./config.js";
+import { normalizeAdditionalPayload, normalizeServers } from "./config.js";
 import {
   createDocId,
   createEventId,
@@ -29,6 +29,9 @@ export function jobsRouter() {
         savedConfig?.maxConcurrent || savedConfig?.batchSize
       );
       const includeDocId = Boolean(savedConfig?.includeDocId);
+      const additionalPayload = normalizeAdditionalPayload(
+        savedConfig?.additionalPayload
+      );
 
       if (!destinations.length) {
         res.status(400).json({
@@ -94,6 +97,7 @@ export function jobsRouter() {
         maxConcurrent,
         batchSize: maxConcurrent,
         includeDocId,
+        additionalPayload,
         waitTime: 0,
         status: "queued",
         files: ordered.map((file) => file._id),

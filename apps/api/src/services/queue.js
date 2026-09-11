@@ -214,6 +214,7 @@ async function startNextFile(jobId, serverId, itemId) {
       jobDescription: job.jobDescription,
       attachments: item.file?.publicUrl ? [item.file.publicUrl] : [],
       docId: job.includeDocId ? item.docId : undefined,
+      additionalPayload: job.additionalPayload,
     };
   });
 

@@ -38,6 +38,14 @@ export function normalizeServers(config) {
   return [{ ...EMPTY_SERVER }];
 }
 
+export function normalizeAdditionalPayload(input) {
+  if (!Array.isArray(input)) return [];
+  return input.map((row) => ({
+    key: String(row?.key ?? ""),
+    value: String(row?.value ?? ""),
+  }));
+}
+
 function publicConfig(config) {
   return {
     servers: normalizeServers(config).map((server) => ({
@@ -47,6 +55,7 @@ function publicConfig(config) {
     })),
     maxConcurrent: Number(config?.maxConcurrent || config?.batchSize || 4),
     includeDocId: Boolean(config?.includeDocId),
+    additionalPayload: normalizeAdditionalPayload(config?.additionalPayload),
   };
 }
 
@@ -93,6 +102,12 @@ export function configRouter() {
       return;
     }
 
+    const existing = await ConfigModel.findById("primary").lean();
+    const additionalPayload =
+      body.additionalPayload !== undefined
+        ? normalizeAdditionalPayload(body.additionalPayload)
+        : normalizeAdditionalPayload(existing?.additionalPayload);
+
     const config = await ConfigModel.findByIdAndUpdate(
       "primary",
       {
@@ -102,7 +117,20 @@ export function configRouter() {
         atenxionToken: servers[0].atenxionToken,
         maxConcurrent,
         includeDocId,
+        additionalPayload,
       },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    ).lean();
+
+    res.json({ config: publicConfig(config) });
+  });
+
+  router.put("/config/additional-payload", async (req, res) => {
+    const additionalPayload = normalizeAdditionalPayload(req.body?.additionalPayload);
+
+    const config = await ConfigModel.findByIdAndUpdate(
+      "primary",
+      { $set: { additionalPayload } },
       { upsert: true, new: true, setDefaultsOnInsert: true }
     ).lean();
 
