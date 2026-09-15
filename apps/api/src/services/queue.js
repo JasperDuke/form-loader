@@ -3,7 +3,7 @@ import { triggerAgent } from "./atenxion.js";
 import { emitJob } from "./live.js";
 import { removeStoredFiles } from "./storage.js";
 import { isSuccessfulWorkflow, isTerminalWorkflow, pollWorkflow } from "./temporal.js";
-import { POLL_INTERVAL_MS, sleep } from "../utils.js";
+import { DEFAULT_POLL_WAIT_SECONDS, sleep } from "../utils.js";
 
 const processing = new Set();
 const jobLocks = new Map();
@@ -65,6 +65,14 @@ async function loadJob(id) {
 
 function maxConcurrentOf(job) {
   return Number(job.maxConcurrent || job.batchSize || 1);
+}
+
+function pollWaitMsOf(job) {
+  const seconds = Number(job?.pollWaitSeconds ?? DEFAULT_POLL_WAIT_SECONDS);
+  if (!Number.isFinite(seconds) || seconds < 1) {
+    return DEFAULT_POLL_WAIT_SECONDS * 1000;
+  }
+  return Math.round(seconds) * 1000;
 }
 
 function inFlightCount(server) {
@@ -354,7 +362,8 @@ async function processServer(jobId, serverId) {
     });
 
     if (done) return;
-    await sleep(POLL_INTERVAL_MS);
+    const job = await loadJob(jobId);
+    await sleep(pollWaitMsOf(job));
   }
 }
 

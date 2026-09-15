@@ -20,6 +20,7 @@ export type AppConfig = {
   maxConcurrent: number;
   includeDocId: boolean;
   additionalPayload: PayloadPair[];
+  pollWaitSeconds: number;
 };
 
 export type FileRecord = {

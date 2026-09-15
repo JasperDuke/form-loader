@@ -4,7 +4,8 @@ import path from "path";
 export const MAX_FILES = 500;
 export const MAX_FILE_BYTES = 50 * 1024 * 1024;
 export const MAX_TOTAL_BYTES = 1024 * 1024 * 1024;
-export const POLL_INTERVAL_MS = 5000;
+export const DEFAULT_POLL_WAIT_SECONDS = 5;
+export const POLL_INTERVAL_MS = DEFAULT_POLL_WAIT_SECONDS * 1000;
 
 export const ALLOWED_EXTENSIONS = new Set([".pdf", ".docx", ".xlsx"]);
 

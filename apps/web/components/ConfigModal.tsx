@@ -202,6 +202,30 @@ export function ConfigModal() {
             </span>
           </label>
 
+          <label className="block">
+            <span className="text-xs uppercase tracking-[0.16em] text-muted">
+              Temporal poll wait (seconds)
+            </span>
+            <input
+              type="number"
+              min={1}
+              max={3600}
+              value={draft.pollWaitSeconds}
+              onChange={(event) =>
+                setDraft((prev) => ({
+                  ...prev,
+                  pollWaitSeconds: Number(event.target.value),
+                }))
+              }
+              placeholder="5"
+              className="mt-1 w-full rounded-md border border-line bg-white px-3 py-2 text-sm outline-none focus:border-ink"
+            />
+            <span className="mt-1 block text-xs text-muted">
+              Pause between Temporal status checks per destination. Default 5; use
+              120 or higher to reduce API calls.
+            </span>
+          </label>
+
           <label className="flex items-center gap-3 rounded-md border border-line bg-white px-3 py-3">
             <input
               type="checkbox"

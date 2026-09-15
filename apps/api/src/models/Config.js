@@ -27,6 +27,7 @@ const configSchema = new mongoose.Schema(
     maxConcurrent: { type: Number, default: 4 },
     includeDocId: { type: Boolean, default: false },
     additionalPayload: { type: [payloadPairSchema], default: [] },
+    pollWaitSeconds: { type: Number, default: 5 },
   },
   { timestamps: true }
 );

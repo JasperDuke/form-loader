@@ -20,6 +20,7 @@ export const EMPTY_CONFIG: AppConfig = {
   maxConcurrent: 4,
   includeDocId: false,
   additionalPayload: [],
+  pollWaitSeconds: 5,
 };
 
 function asAdditionalPayload(input: unknown): PayloadPair[] {
@@ -69,6 +70,7 @@ export async function loadConfig(): Promise<AppConfig> {
       maxConcurrent: Number(config.maxConcurrent || config.batchSize) || 4,
       includeDocId: Boolean(config.includeDocId),
       additionalPayload: asAdditionalPayload(config.additionalPayload),
+      pollWaitSeconds: Number(config.pollWaitSeconds) || 5,
     };
   } catch {
     return EMPTY_CONFIG;
@@ -85,6 +87,7 @@ export async function saveConfig(config: AppConfig) {
     maxConcurrent: Number(config.maxConcurrent),
     includeDocId: Boolean(config.includeDocId),
     additionalPayload: asAdditionalPayload(config.additionalPayload),
+    pollWaitSeconds: Number(config.pollWaitSeconds) || 5,
   };
   const response = await fetch(`${apiBase()}/api/config`, {
     method: "PUT",
@@ -103,6 +106,7 @@ export async function saveConfig(config: AppConfig) {
     maxConcurrent: Number(body.config.maxConcurrent) || 4,
     includeDocId: Boolean(body.config.includeDocId),
     additionalPayload: asAdditionalPayload(body.config.additionalPayload),
+    pollWaitSeconds: Number(body.config.pollWaitSeconds) || 5,
   };
 }
 
@@ -124,6 +128,7 @@ export async function saveAdditionalPayload(pairs: PayloadPair[]) {
     maxConcurrent: Number(body.config.maxConcurrent) || 4,
     includeDocId: Boolean(body.config.includeDocId),
     additionalPayload: asAdditionalPayload(body.config.additionalPayload),
+    pollWaitSeconds: Number(body.config.pollWaitSeconds) || 5,
   };
 }
 
@@ -141,6 +146,15 @@ export function validateConfig(config: AppConfig) {
   if (!config.servers.length) return "Add at least one destination.";
   if (!Number.isInteger(maxConcurrent) || maxConcurrent < 1 || maxConcurrent > 500) {
     return "Max concurrent APIs must be between 1 and 500.";
+  }
+
+  const pollWaitSeconds = Number(config.pollWaitSeconds);
+  if (
+    !Number.isInteger(pollWaitSeconds) ||
+    pollWaitSeconds < 1 ||
+    pollWaitSeconds > 3600
+  ) {
+    return "Temporal poll wait must be between 1 and 3600 seconds.";
   }
 
   for (const [index, server] of config.servers.entries()) {

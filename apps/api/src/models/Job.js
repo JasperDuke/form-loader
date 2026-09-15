@@ -80,6 +80,7 @@ const jobSchema = new mongoose.Schema(
     batchSize: { type: Number, required: true },
     includeDocId: { type: Boolean, default: false },
     additionalPayload: { type: [payloadPairSchema], default: [] },
+    pollWaitSeconds: { type: Number, default: 5 },
     waitTime: { type: Number, default: 0 },
     status: {
       type: String,

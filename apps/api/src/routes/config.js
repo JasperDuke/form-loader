@@ -1,6 +1,18 @@
 import express from "express";
 import { ConfigModel } from "../models/Config.js";
-import { normalizeUrl } from "../utils.js";
+import { DEFAULT_POLL_WAIT_SECONDS, normalizeUrl } from "../utils.js";
+
+const MIN_POLL_WAIT_SECONDS = 1;
+const MAX_POLL_WAIT_SECONDS = 3600;
+
+export function normalizePollWaitSeconds(value) {
+  const seconds = Number(value);
+  if (!Number.isFinite(seconds)) return DEFAULT_POLL_WAIT_SECONDS;
+  const rounded = Math.round(seconds);
+  if (rounded < MIN_POLL_WAIT_SECONDS) return MIN_POLL_WAIT_SECONDS;
+  if (rounded > MAX_POLL_WAIT_SECONDS) return MAX_POLL_WAIT_SECONDS;
+  return rounded;
+}
 
 const EMPTY_SERVER = {
   atenxionUrl: "",
@@ -56,6 +68,9 @@ function publicConfig(config) {
     maxConcurrent: Number(config?.maxConcurrent || config?.batchSize || 4),
     includeDocId: Boolean(config?.includeDocId),
     additionalPayload: normalizeAdditionalPayload(config?.additionalPayload),
+    pollWaitSeconds: normalizePollWaitSeconds(
+      config?.pollWaitSeconds ?? DEFAULT_POLL_WAIT_SECONDS
+    ),
   };
 }
 
@@ -83,6 +98,25 @@ export function configRouter() {
       return;
     }
 
+    if (body.pollWaitSeconds !== undefined) {
+      const raw = Number(body.pollWaitSeconds);
+      if (
+        !Number.isInteger(raw) ||
+        raw < MIN_POLL_WAIT_SECONDS ||
+        raw > MAX_POLL_WAIT_SECONDS
+      ) {
+        res.status(400).json({
+          error: `Temporal poll wait must be between ${MIN_POLL_WAIT_SECONDS} and ${MAX_POLL_WAIT_SECONDS} seconds.`,
+        });
+        return;
+      }
+    }
+
+    const existing = await ConfigModel.findById("primary").lean();
+    const pollWaitSeconds = normalizePollWaitSeconds(
+      body.pollWaitSeconds ?? existing?.pollWaitSeconds
+    );
+
     let servers;
     try {
       servers = incoming.map((server, index) => {
@@ -102,7 +136,6 @@ export function configRouter() {
       return;
     }
 
-    const existing = await ConfigModel.findById("primary").lean();
     const additionalPayload =
       body.additionalPayload !== undefined
         ? normalizeAdditionalPayload(body.additionalPayload)
@@ -118,6 +151,7 @@ export function configRouter() {
         maxConcurrent,
         includeDocId,
         additionalPayload,
+        pollWaitSeconds,
       },
       { upsert: true, new: true, setDefaultsOnInsert: true }
     ).lean();
