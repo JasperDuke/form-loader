@@ -12,6 +12,7 @@ import {
   isAllowedFile,
   type FileRecord,
 } from "@/lib/types";
+import { BRAND_NAME } from "@/lib/brand";
 import { useConfig } from "./ConfigProvider";
 
 type Staged = {
@@ -167,9 +168,9 @@ export function UploadPanel({ onDispatched }: Props) {
       <div className="flex items-end justify-between border-b border-line px-6 py-6 md:px-10">
         <div>
           <p className="text-[10px] font-medium uppercase tracking-[0.22em] text-muted">
-            QueueDrop
+            {BRAND_NAME}
           </p>
-          <h2 className="mt-2 font-serif text-4xl">Drop files</h2>
+          <h2 className="mt-2 font-serif text-4xl">Upload files</h2>
           <p className="mt-2 max-w-md text-sm leading-6 text-muted">
             Drop your documents here. Each file is sent to every destination with
             the same payload and the same Doc_ID. Max concurrent is per server.

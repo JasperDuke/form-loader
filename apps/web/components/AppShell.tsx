@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { fetchJobs } from "@/lib/api";
+import { getAuthToken } from "@/lib/auth";
 import { isActiveStatus, wsUrl, type JobRecord } from "@/lib/types";
 import { AdditionalPayloadModal } from "./AdditionalPayloadModal";
 import { ConfigModal } from "./ConfigModal";
@@ -39,7 +40,7 @@ export function AppShell() {
 
     function connect() {
       try {
-        socket = new WebSocket(wsUrl());
+        socket = new WebSocket(wsUrl(getAuthToken()));
       } catch {
         retry = window.setTimeout(connect, 2500);
         return;

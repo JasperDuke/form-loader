@@ -5,6 +5,8 @@ import dotenv from "dotenv";
 import express from "express";
 import mongoose from "mongoose";
 import { uploadsDir } from "./paths.js";
+import { requireAuth } from "./middleware/auth.js";
+import { authRouter } from "./routes/auth.js";
 import { filesRouter } from "./routes/files.js";
 import { configRouter } from "./routes/config.js";
 import { jobsRouter } from "./routes/jobs.js";
@@ -45,9 +47,10 @@ app.get("/api/health", (_req, res) => {
   });
 });
 
-app.use("/api", filesRouter(PUBLIC_ORIGIN));
-app.use("/api", configRouter());
-app.use("/api", jobsRouter());
+app.use("/api", authRouter());
+app.use("/api", requireAuth, filesRouter(PUBLIC_ORIGIN));
+app.use("/api", requireAuth, configRouter());
+app.use("/api", requireAuth, jobsRouter());
 
 app.use((error, _req, res, _next) => {
   if (error) {

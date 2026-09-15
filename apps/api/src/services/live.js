@@ -1,5 +1,6 @@
 import { WebSocketServer } from "ws";
 import { JobModel } from "../models/Job.js";
+import { verifyAuthHeader } from "../middleware/auth.js";
 
 const JOB_POPULATE = [
   { path: "files" },
@@ -11,7 +12,14 @@ let wss = null;
 
 export function attachLive(httpServer) {
   wss = new WebSocketServer({ server: httpServer, path: "/ws" });
-  wss.on("connection", (socket) => {
+  wss.on("connection", (socket, request) => {
+    const url = new URL(request.url || "", "http://localhost");
+    const token = url.searchParams.get("token") || "";
+    const header = request.headers.authorization || token;
+    if (!verifyAuthHeader(header)) {
+      socket.close(4401, "Unauthorized");
+      return;
+    }
     socket.send(JSON.stringify({ type: "hello" }));
   });
   const timer = setInterval(() => {

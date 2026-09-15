@@ -10,8 +10,8 @@ const figtree = Figtree({
 });
 
 export const metadata: Metadata = {
-  title: "Atenxion QueueDrop",
-  description: "Drop files into the queue and send them to Atenxion.",
+  title: "RAM Data Extraction Portal",
+  description: "Upload and queue documents for extraction.",
 };
 
 export default function RootLayout({

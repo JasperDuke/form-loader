@@ -1,3 +1,4 @@
+import { authHeaders } from "./auth";
 import {
   apiBase,
   type AppConfig,
@@ -58,6 +59,7 @@ export async function loadConfig(): Promise<AppConfig> {
   try {
     const response = await fetch(`${apiBase()}/api/config`, {
       cache: "no-store",
+      headers: authHeaders(),
     });
     if (!response.ok) throw new Error("Could not load configuration.");
     const body = (await response.json()) as { config?: Partial<AppConfig> & { batchSize?: number } };
@@ -86,7 +88,7 @@ export async function saveConfig(config: AppConfig) {
   };
   const response = await fetch(`${apiBase()}/api/config`, {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
+    headers: authHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify(next),
   });
   if (!response.ok) {
@@ -107,7 +109,7 @@ export async function saveConfig(config: AppConfig) {
 export async function saveAdditionalPayload(pairs: PayloadPair[]) {
   const response = await fetch(`${apiBase()}/api/config/additional-payload`, {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
+    headers: authHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({ additionalPayload: asAdditionalPayload(pairs) }),
   });
   if (!response.ok) {

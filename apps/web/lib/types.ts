@@ -103,8 +103,10 @@ export function apiBase() {
   return process.env.NEXT_PUBLIC_API_URL || "http://localhost:3020";
 }
 
-export function wsUrl() {
-  return `${apiBase().replace(/^http/, "ws")}/ws`;
+export function wsUrl(token?: string) {
+  const base = `${apiBase().replace(/^http/, "ws")}/ws`;
+  if (!token) return base;
+  return `${base}?token=${encodeURIComponent(token)}`;
 }
 
 export function normalizeAtenxionUrl(url: string) {

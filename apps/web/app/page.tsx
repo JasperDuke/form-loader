@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { AuthGate } from "@/components/AuthGate";
 
 const AppShell = dynamic(
   () => import("@/components/AppShell").then((mod) => mod.AppShell),
@@ -15,5 +16,9 @@ const AppShell = dynamic(
 );
 
 export default function Page() {
-  return <AppShell />;
+  return (
+    <AuthGate>
+      <AppShell />
+    </AuthGate>
+  );
 }

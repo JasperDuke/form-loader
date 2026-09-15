@@ -1,0 +1,98 @@
+openapi: 3.0.3
+info:
+  title: Atenxion Agent Trigger API
+  version: 1.0.0
+  description: |
+    Start an Atenxion agent workflow.
+
+    - **Production** — `https://backend.atenxion.ai`
+    - **QA** — `https://api-qa.atenxion.ai`
+    - **Auth** — `Authorization: <token>` (no `Bearer`)
+    - **Required body** — `event_id`
+    - **Files** — `file_urls` (array of public HTTPS URL strings)
+
+servers:
+  - url: https://backend.atenxion.ai
+    description: Production
+  - url: https://api-qa.atenxion.ai
+    description: QA
+
+paths:
+  /api/trigger/agent-trigger:
+    post:
+      operationId: triggerAgent
+      summary: Trigger an agent workflow
+      security:
+        - AtenxionToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentTriggerRequest"
+            examples:
+              singleFile:
+                value:
+                  event_id: event_a1b2c3d4e5f6
+                  file_urls:
+                    - https://cdn.example.com/reports/quarterly.pdf
+              multipleFiles:
+                value:
+                  event_id: event_a1b2c3d4e5f6
+                  file_urls:
+                    - https://files.example.com/a.pdf
+                    - https://files.example.com/b.pdf
+      responses:
+        "200":
+          description: Trigger accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentTriggerResponse"
+        "400":
+          description: Invalid request
+        "401":
+          description: Invalid or missing token
+        "500":
+          description: Server error
+
+components:
+  securitySchemes:
+    AtenxionToken:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: Raw API token. No `Bearer` prefix.
+
+  schemas:
+    AgentTriggerRequest:
+      type: object
+      required:
+        - event_id
+      additionalProperties: true
+      properties:
+        event_id:
+          type: string
+          example: event_fd963328a70f
+        file_urls:
+          type: array
+          items:
+            type: string
+            format: uri
+          description: Array of public HTTPS URLs to process (one or more).
+          example:
+            - https://files.example.com/uploads/report.pdf
+            - https://files.example.com/uploads/appendix.pdf
+
+    AgentTriggerResponse:
+      type: object
+      additionalProperties: true
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        workflow_id:
+          type: string
+        run_id:
+          type: string
