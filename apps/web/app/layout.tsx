@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Figtree } from "next/font/google";
+import { PublicEnvScript } from "next-runtime-env";
 import { ConfigProvider } from "@/components/ConfigProvider";
 import "./globals.css";
 
@@ -21,6 +22,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
+      <head>
+        <PublicEnvScript />
+      </head>
       <body className={`${figtree.variable} font-sans antialiased`}>
         <ConfigProvider>{children}</ConfigProvider>
       </body>

@@ -12,25 +12,22 @@ import { configRouter } from "./routes/config.js";
 import { jobsRouter } from "./routes/jobs.js";
 import { attachLive } from "./services/live.js";
 import { resumePendingJobs } from "./services/queue.js";
+import { configuredPublicApiUrl } from "./publicOrigin.js";
 
 dotenv.config();
 
 const PORT = Number(process.env.API_PORT || 3020);
 const MONGODB_URI =
   process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/convoy";
-const PUBLIC_ORIGIN = (process.env.PUBLIC_ORIGIN || `http://localhost:${PORT}`).replace(
-  /\/+$/,
-  ""
-);
-
 const app = express();
 app.disable("x-powered-by");
-app.use(cors({ origin: true }));
+app.set("trust proxy", true);
+app.use(cors({ origin: "*" }));
 app.use(express.json({ limit: "2mb" }));
 
 app.use(
   "/files",
-  cors({ origin: true }),
+  cors({ origin: "*" }),
   express.static(uploadsDir, {
     fallthrough: true,
     setHeaders(res) {
@@ -43,12 +40,12 @@ app.get("/api/health", (_req, res) => {
   res.json({
     ok: true,
     mongo: mongoose.connection.readyState === 1,
-    publicOrigin: PUBLIC_ORIGIN,
+    publicApiUrl: configuredPublicApiUrl(),
   });
 });
 
 app.use("/api", authRouter());
-app.use("/api", requireAuth, filesRouter(PUBLIC_ORIGIN));
+app.use("/api", requireAuth, filesRouter(() => PORT));
 app.use("/api", requireAuth, configRouter());
 app.use("/api", requireAuth, jobsRouter());
 
@@ -73,7 +70,7 @@ async function start() {
   const server = http.createServer(app);
   attachLive(server);
   server.listen(PORT, () => {
-    console.log(`Atenxion QueueDrop API on ${PUBLIC_ORIGIN}`);
+    console.log(`Atenxion QueueDrop API listening on port ${PORT}`);
     resumePendingJobs().catch((error) => {
       console.error("Failed to resume jobs:", error);
     });

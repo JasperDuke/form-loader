@@ -6,5 +6,32 @@ services:
     volumes:
       - convoy_mongo:/data/db
 
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    ports:
+      - "3020:3020"
+    environment:
+      MONGODB_URI: mongodb://mongo:27017/file-loader
+      API_PORT: 3020
+      PUBLIC_API_URL: http://localhost:3020
+    volumes:
+      - api_uploads:/app/apps/api/uploads
+    depends_on:
+      - mongo
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    ports:
+      - "3019:3019"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:3020
+    depends_on:
+      - api
+
 volumes:
   convoy_mongo:
+  api_uploads:

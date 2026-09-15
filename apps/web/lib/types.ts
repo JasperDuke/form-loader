@@ -1,3 +1,5 @@
+import { env } from "next-runtime-env";
+
 export const MAX_FILES = 500;
 export const MAX_FILE_BYTES = 50 * 1024 * 1024;
 export const MAX_TOTAL_BYTES = 1024 * 1024 * 1024;
@@ -101,7 +103,8 @@ export type JobRecord = {
 };
 
 export function apiBase() {
-  return process.env.NEXT_PUBLIC_API_URL || "http://localhost:3020";
+  const raw = env("NEXT_PUBLIC_API_URL") || "http://localhost:3020";
+  return raw.replace(/\/+$/, "");
 }
 
 export function wsUrl(token?: string) {

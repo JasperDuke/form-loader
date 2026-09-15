@@ -4,6 +4,7 @@ import express from "express";
 import multer from "multer";
 import { FileModel } from "../models/File.js";
 import { uploadsDir } from "../paths.js";
+import { resolvePublicOrigin } from "../publicOrigin.js";
 import {
   MAX_FILE_BYTES,
   MAX_TOTAL_BYTES,
@@ -53,7 +54,7 @@ function multerErrorMessage(error) {
   return { status: 500, error: error.message || "Upload failed." };
 }
 
-export function filesRouter(publicOrigin) {
+export function filesRouter(getPort) {
   const router = express.Router();
 
   router.post("/upload", (req, res) => {
@@ -78,13 +79,15 @@ export function filesRouter(publicOrigin) {
       }
 
       try {
+        const port = typeof getPort === "function" ? getPort() : getPort;
+        const origin = resolvePublicOrigin(req, port);
         const docs = await FileModel.insertMany(
           incoming.map((file) => ({
             originalName: file.originalname,
             storedName: file.filename,
             mimeType: file.mimetype,
             size: file.size,
-            publicUrl: publicFileUrl(publicOrigin, file.filename),
+            publicUrl: publicFileUrl(origin, file.filename),
           }))
         );
 
