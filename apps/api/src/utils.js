@@ -29,9 +29,33 @@ export function createDocId() {
   return `${yyyy}${mm}${dd}-${suffix}`;
 }
 
+const MAX_STORED_STEM_LENGTH = 120;
+
+export function sanitizeStoredStem(originalName) {
+  const base = path.basename(String(originalName || "file"));
+  const ext = path.extname(base);
+  let stem = base.slice(0, base.length - ext.length).trim();
+  if (!stem) stem = "file";
+
+  stem = stem
+    .replace(/[/\\?%*:|"<>#]/g, "-")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  if (!stem) stem = "file";
+  if (stem.length > MAX_STORED_STEM_LENGTH) {
+    stem = stem.slice(0, MAX_STORED_STEM_LENGTH).replace(/-+$/g, "");
+  }
+  if (!stem) stem = "file";
+  return stem;
+}
+
+/** Disk name and public URL segment: `{original}-{timestamp}.ext` */
 export function createStoredName(originalName) {
   const ext = path.extname(originalName).toLowerCase();
-  return `${Date.now()}-${crypto.randomBytes(8).toString("hex")}${ext}`;
+  const stem = sanitizeStoredStem(originalName);
+  return `${stem}-${Date.now()}${ext}`;
 }
 
 export function normalizeUrl(url) {
