@@ -45,8 +45,9 @@ export function HistoryList({ jobs, selectedId, onSelect }: Props) {
               const totals = submissionCounts(job);
               const servers = jobServers(job);
               const active = isActiveStatus(job.status);
-              const progress =
-                ((totals.done + totals.failed) / Math.max(totals.total, 1)) * 100;
+              const progress = active
+                ? ((totals.total - totals.waiting) / Math.max(totals.total, 1)) * 100
+                : ((totals.done + totals.failed) / Math.max(totals.total, 1)) * 100;
               return (
                 <li key={job._id} className="border-b border-line last:border-b-0">
                   <button
@@ -83,9 +84,9 @@ export function HistoryList({ jobs, selectedId, onSelect }: Props) {
                       />
                     </div>
                     <p className="mt-2 text-xs text-muted">
-                      {totals.done}/{totals.total} done
-                      {totals.running ? ` · ${totals.running} running` : ""}
-                      {totals.waiting ? ` · ${totals.waiting} waiting` : ""}
+                      {active
+                        ? `${totals.processing} processing · ${totals.waiting} waiting`
+                        : `${totals.done}/${totals.total} done`}
                       {totals.failed ? ` · ${totals.failed} failed` : ""}
                     </p>
 
@@ -102,8 +103,9 @@ export function HistoryList({ jobs, selectedId, onSelect }: Props) {
                                 {index + 1}. {hostOf(server.atenxionUrl)}
                               </span>
                               <span className="shrink-0 tabular-nums text-muted">
-                                {counts.done}/{counts.total} done
-                                {counts.running ? ` · ${counts.running} running` : ""}
+                                {active
+                                  ? `${counts.processing} processing · ${counts.waiting} waiting`
+                                  : `${counts.done}/${counts.total} done`}
                               </span>
                             </div>
                           );

@@ -15,7 +15,7 @@ const itemSchema = new mongoose.Schema(
     file: { type: mongoose.Schema.Types.ObjectId, ref: "File" },
     status: {
       type: String,
-      enum: ["pending", "sending", "polling", "sent", "failed", "cancelled"],
+      enum: ["pending", "sending", "running", "polling", "sent", "failed", "cancelled"],
       default: "pending",
     },
     docId: String,
@@ -36,6 +36,7 @@ const serverRunSchema = new mongoose.Schema(
     atenxionUrl: { type: String, required: true },
     temporalUrl: { type: String, required: true },
     atenxionToken: { type: String, required: true, select: false },
+    agentIds: { type: [String], default: [] },
     status: {
       type: String,
       enum: ["queued", "sending", "completed", "cancelled", "failed", "partial"],
@@ -53,7 +54,7 @@ const batchSchema = new mongoose.Schema(
     files: [{ type: mongoose.Schema.Types.ObjectId, ref: "File" }],
     status: {
       type: String,
-      enum: ["pending", "sending", "polling", "sent", "failed", "cancelled"],
+      enum: ["pending", "sending", "running", "polling", "sent", "failed", "cancelled"],
       default: "pending",
     },
     docId: String,

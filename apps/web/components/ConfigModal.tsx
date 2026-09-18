@@ -163,6 +163,65 @@ export function ConfigModal() {
                   </button>
                 </div>
               </label>
+              <div className="mt-3">
+                <p className="text-xs uppercase tracking-[0.16em] text-muted">
+                  Agent IDs
+                </p>
+                <p className="mt-1 text-xs text-muted">
+                  Running Temporal workflows matching these IDs count toward max
+                  concurrent (parsed from workflowId after{" "}
+                  <span className="font-mono">chat-temporal-agent-</span>).
+                </p>
+                <div className="mt-2 space-y-2">
+                  {(server.agentIds?.length ? server.agentIds : [""]).map(
+                    (agentId, agentIndex) => (
+                      <div key={agentIndex} className="flex gap-2">
+                        <input
+                          value={agentId}
+                          onChange={(event) => {
+                            const next = [
+                              ...(server.agentIds?.length
+                                ? server.agentIds
+                                : [""]),
+                            ];
+                            next[agentIndex] = event.target.value;
+                            updateServer(index, { agentIds: next });
+                          }}
+                          placeholder="6aa8f1cbb175e40aaf2c1143"
+                          className="min-w-0 flex-1 rounded-md border border-line px-3 py-2 font-mono text-sm outline-none focus:border-ink"
+                        />
+                        {(server.agentIds?.length || 0) > 1 ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const next = (server.agentIds || []).filter(
+                                (_, i) => i !== agentIndex
+                              );
+                              updateServer(index, {
+                                agentIds: next.length ? next : [""],
+                              });
+                            }}
+                            className="shrink-0 px-2 text-xs uppercase tracking-[0.14em] text-muted hover:text-ink"
+                          >
+                            Remove
+                          </button>
+                        ) : null}
+                      </div>
+                    )
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    updateServer(index, {
+                      agentIds: [...(server.agentIds || [""]), ""],
+                    })
+                  }
+                  className="mt-2 text-xs uppercase tracking-[0.14em] text-muted hover:text-ink"
+                >
+                  Add agent ID
+                </button>
+              </div>
             </div>
           ))}
 
@@ -198,7 +257,9 @@ export function ConfigModal() {
               className="mt-1 w-full rounded-md border border-line bg-white px-3 py-2 text-sm outline-none focus:border-ink"
             />
             <span className="mt-1 block text-xs text-muted">
-              Per destination. 3 means 3 in-flight on each server, not 3 total.
+              Per destination: max running Temporal workflows whose workflowId
+              contains one of this destination&apos;s Agent IDs (not 3 total
+              across servers).
             </span>
           </label>
 

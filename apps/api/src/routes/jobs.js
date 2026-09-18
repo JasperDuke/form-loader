@@ -7,6 +7,7 @@ import { removeStoredFiles } from "../services/storage.js";
 import { emitJob, emitJobDeleted, JOB_POPULATE_PATHS } from "../services/live.js";
 import {
   normalizeAdditionalPayload,
+  normalizeAgentIds,
   normalizePollWaitSeconds,
   normalizeServers,
 } from "./config.js";
@@ -48,6 +49,17 @@ export function jobsRouter() {
         return;
       }
 
+      const missingAgents = destinations.find(
+        (server) => !normalizeAgentIds(server.agentIds).length
+      );
+      if (missingAgents) {
+        res.status(400).json({
+          error:
+            "Each destination needs at least one Agent ID for Temporal concurrency.",
+        });
+        return;
+      }
+
       if (!ids.length) {
         res.status(400).json({ error: "No files to send." });
         return;
@@ -85,6 +97,7 @@ export function jobsRouter() {
         atenxionUrl: destination.atenxionUrl,
         temporalUrl: destination.temporalUrl,
         atenxionToken: destination.atenxionToken,
+        agentIds: normalizeAgentIds(destination.agentIds),
         status: "queued",
         items: ordered.map((file, index) => ({
           index: index + 1,

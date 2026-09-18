@@ -2,7 +2,10 @@ import { JobModel } from "../models/Job.js";
 import { triggerAgent } from "./atenxion.js";
 import { emitJob } from "./live.js";
 import { removeStoredFiles } from "./storage.js";
-import { isSuccessfulWorkflow, isTerminalWorkflow, pollWorkflow } from "./temporal.js";
+import {
+  countRunningWorkflowsForAgents,
+  listRunningWorkflowIds,
+} from "./temporal.js";
 import { DEFAULT_POLL_WAIT_SECONDS, sleep } from "../utils.js";
 
 const processing = new Set();
@@ -75,10 +78,9 @@ function pollWaitMsOf(job) {
   return Math.round(seconds) * 1000;
 }
 
-function inFlightCount(server) {
-  return (server.items || []).filter((item) =>
-    ["sending", "polling"].includes(item.status)
-  ).length;
+function normalizeItemStatus(status) {
+  if (status === "polling") return "running";
+  return status;
 }
 
 function isTerminalItem(status) {
@@ -110,18 +112,41 @@ function allProcessed(job) {
   );
 }
 
+function serverHasTriggerWork(server) {
+  return (server.items || []).some((item) =>
+    ["pending", "sending"].includes(item.status)
+  );
+}
+
+function serverHasProcessingItems(server) {
+  return (server.items || []).some((item) =>
+    ["running", "polling"].includes(item.status)
+  );
+}
+
+function finalizeProcessingItems(server, cancelled) {
+  const now = new Date();
+  server.items.forEach((item) => {
+    if (item.status === "running" || item.status === "polling") {
+      item.status = cancelled ? "cancelled" : "sent";
+      if (!cancelled) item.sentAt = now;
+      item.polledAt = now;
+    }
+  });
+}
+
 function serverStatus(server, cancelled) {
-  const statuses = (server.items || []).map((item) => item.status);
+  const statuses = (server.items || []).map((item) => normalizeItemStatus(item.status));
   const sent = statuses.filter((status) => status === "sent").length;
   const failed = statuses.filter((status) => status === "failed").length;
-  const pending = statuses.filter((status) =>
-    ["pending", "sending", "polling"].includes(status)
+  const active = statuses.filter((status) =>
+    ["pending", "sending", "running"].includes(status)
   ).length;
-  if (cancelled && pending === 0) return "cancelled";
-  if (pending === 0 && failed === 0) return "completed";
-  if (pending === 0 && failed > 0 && sent > 0) return "partial";
-  if (pending === 0 && failed > 0 && sent === 0) return "failed";
-  if (pending > 0) return "sending";
+  if (cancelled && active === 0) return "cancelled";
+  if (active === 0 && failed === 0) return "completed";
+  if (active === 0 && failed > 0 && sent > 0) return "partial";
+  if (active === 0 && failed > 0 && sent === 0) return "failed";
+  if (active > 0) return "sending";
   return server.status;
 }
 
@@ -150,55 +175,18 @@ function progressSnapshot(job) {
       status: server.status,
       items: (server.items || []).map((item) => ({
         id: String(item._id),
-        status: item.status,
+        status: normalizeItemStatus(item.status),
         error: item.error || "",
-        workflowId: item.workflowId || "",
       })),
     })),
   });
 }
 
-function applyPollResult(item, result) {
-  item.polledAt = new Date();
-  if (result.error && !result.status) {
-    item.error = result.error;
-    return;
-  }
-  item.temporalStatus = result.workflowStatus || item.temporalStatus;
-  if (!result.ok) {
-    item.error = result.error || `Temporal responded ${result.status}`;
-    return;
-  }
-  if (!isTerminalWorkflow(result.workflowStatus)) return;
-  if (isSuccessfulWorkflow(result.workflowStatus)) {
-    item.status = "sent";
-    item.sentAt = new Date();
-    item.error = undefined;
-    return;
-  }
-  item.status = "failed";
-  item.error = result.workflowStatus || "Workflow failed.";
-}
-
-async function pollTargets(temporalUrl, atenxionToken, items) {
-  const results = [];
-  for (const item of items) {
-    try {
-      const result = await pollWorkflow({
-        temporalUrl,
-        atenxionToken,
-        workflowId: item.workflowId,
-        runId: item.runId,
-      });
-      results.push({ id: item.id, ...result });
-    } catch (error) {
-      results.push({
-        id: item.id,
-        error: error.message || "Temporal poll failed.",
-      });
-    }
-  }
-  return results;
+function migrateServerItems(server) {
+  server.items.forEach((item) => {
+    if (item.status === "polling") item.status = "running";
+    if (item.status === "sending") item.status = "pending";
+  });
 }
 
 async function startNextFile(jobId, serverId, itemId) {
@@ -246,11 +234,8 @@ async function startNextFile(jobId, serverId, itemId) {
       } else if (!result.ok) {
         currentItem.status = "failed";
         currentItem.error = `Atenxion responded ${result.status}`;
-      } else if (!result.workflowId || !result.runId) {
-        currentItem.status = "failed";
-        currentItem.error = "Trigger succeeded but workflow_id or run_id was missing.";
       } else {
-        currentItem.status = "polling";
+        currentItem.status = "running";
         currentItem.error = undefined;
       }
       await current.save();
@@ -272,32 +257,37 @@ async function startNextFile(jobId, serverId, itemId) {
 
 async function processServer(jobId, serverId) {
   while (true) {
-    const targets = await withJobLock(jobId, async () => {
+    const context = await withJobLock(jobId, async () => {
       const job = await loadJob(jobId);
       if (!job) return { stop: true };
       const server = job.servers.id(serverId);
       if (!server) return { stop: true };
+      migrateServerItems(server);
       return {
         stop: false,
+        cancelled: Boolean(job.cancelledAt),
         temporalUrl: server.temporalUrl,
         atenxionToken: server.atenxionToken,
-        items: server.items
-          .filter((item) => item.status === "polling" && item.workflowId && item.runId)
-          .map((item) => ({
-            id: item._id,
-            workflowId: item.workflowId,
-            runId: item.runId,
-          })),
+        agentIds: server.agentIds || [],
       };
     });
 
-    if (targets.stop) return;
+    if (context.stop) return;
 
-    const pollResults = await pollTargets(
-      targets.temporalUrl,
-      targets.atenxionToken,
-      targets.items
-    );
+    let temporalRunningCount = 0;
+    let temporalListFailed = false;
+    try {
+      const runningIds = await listRunningWorkflowIds({
+        temporalUrl: context.temporalUrl,
+        atenxionToken: context.atenxionToken,
+      });
+      temporalRunningCount = countRunningWorkflowsForAgents(
+        runningIds,
+        context.agentIds
+      );
+    } catch {
+      temporalListFailed = true;
+    }
 
     const step = await withJobLock(jobId, async () => {
       const job = await loadJob(jobId);
@@ -313,28 +303,30 @@ async function processServer(jobId, serverId) {
         });
       }
 
-      for (const result of pollResults) {
-        const item = server.items.id(result.id);
-        if (!item || item.status !== "polling") continue;
-        applyPollResult(item, result);
+      if (
+        !temporalListFailed &&
+        !serverHasTriggerWork(server) &&
+        serverHasProcessingItems(server) &&
+        temporalRunningCount === 0
+      ) {
+        finalizeProcessingItems(server, cancelled);
       }
-
-      server.items.forEach((item) => {
-        if (item.status === "polling" && (!item.workflowId || !item.runId)) {
-          item.status = "failed";
-          item.error = "Missing workflow_id or run_id.";
-        }
-      });
 
       server.status = serverStatus(server, cancelled);
       await job.save();
       if (before !== progressSnapshot(job)) await emitJob(job._id);
 
-      if (cancelled) {
-        return { stop: inFlightCount(server) === 0 };
+      if (server.items.every((item) => isTerminalItem(item.status))) {
+        return { stop: true, ids: [] };
       }
 
-      const slots = Math.max(0, maxConcurrentOf(job) - inFlightCount(server));
+      if (cancelled && !serverHasTriggerWork(server) && !serverHasProcessingItems(server)) {
+        return { stop: true, ids: [] };
+      }
+
+      const slots = temporalListFailed
+        ? 0
+        : Math.max(0, maxConcurrentOf(job) - temporalRunningCount);
       const ids = [];
       for (const item of server.items) {
         if (ids.length >= slots) break;
@@ -354,11 +346,8 @@ async function processServer(jobId, serverId) {
       if (!job) return true;
       const server = job.servers.id(serverId);
       if (!server) return true;
-      const pending = server.items.some((item) => item.status === "pending");
-      const inflight = inFlightCount(server) > 0;
-      server.status = serverStatus(server, Boolean(job.cancelledAt));
-      await job.save();
-      return !pending && !inflight;
+      if (server.items.every((item) => isTerminalItem(item.status))) return true;
+      return false;
     });
 
     if (done) return;
@@ -396,7 +385,7 @@ async function processJob(jobId) {
           index: batch.index,
           eventId: batch.eventId,
           file: batch.files?.[0]?._id || batch.files?.[0],
-          status: batch.status,
+          status: batch.status === "polling" ? "running" : batch.status,
           docId: batch.docId,
           workflowId: batch.workflowId,
           runId: batch.runId,
@@ -406,13 +395,7 @@ async function processJob(jobId) {
       });
     }
 
-    (job.servers || []).forEach((server) => {
-      server.items.forEach((item) => {
-        if (item.status === "sending" && !item.workflowId && !item.runId) {
-          item.status = "pending";
-        }
-      });
-    });
+    (job.servers || []).forEach((server) => migrateServerItems(server));
     await job.save();
     return Boolean(job.servers?.length);
   });

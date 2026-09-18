@@ -18,7 +18,22 @@ const EMPTY_SERVER = {
   atenxionUrl: "",
   temporalUrl: "",
   atenxionToken: "",
+  agentIds: [],
 };
+
+export function normalizeAgentIds(input) {
+  if (!Array.isArray(input)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const raw of input) {
+    const id = String(raw || "").trim().toLowerCase();
+    if (!id || seen.has(id)) continue;
+    if (!/^[a-f0-9]{24}$/.test(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+}
 
 function assertHttpUrl(value, label) {
   const url = normalizeUrl(value);
@@ -36,6 +51,7 @@ export function normalizeServers(config) {
       atenxionUrl: server.atenxionUrl || "",
       temporalUrl: server.temporalUrl || "",
       atenxionToken: server.atenxionToken || "",
+      agentIds: normalizeAgentIds(server.agentIds),
     }));
   }
   if (config?.atenxionUrl || config?.temporalUrl || config?.atenxionToken) {
@@ -44,6 +60,7 @@ export function normalizeServers(config) {
         atenxionUrl: config.atenxionUrl || "",
         temporalUrl: config.temporalUrl || "",
         atenxionToken: config.atenxionToken || "",
+        agentIds: [],
       },
     ];
   }
@@ -64,6 +81,7 @@ function publicConfig(config) {
       atenxionUrl: server.atenxionUrl,
       temporalUrl: server.temporalUrl,
       atenxionToken: server.atenxionToken,
+      agentIds: normalizeAgentIds(server.agentIds),
     })),
     maxConcurrent: Number(config?.maxConcurrent || config?.batchSize || 4),
     includeDocId: Boolean(config?.includeDocId),
@@ -125,10 +143,15 @@ export function configRouter() {
         if (!server.atenxionUrl || !server.temporalUrl || !atenxionToken) {
           throw new Error(`${label} needs a backend URL, Temporal URL, and token.`);
         }
+        const agentIds = normalizeAgentIds(server.agentIds);
+        if (!agentIds.length) {
+          throw new Error(`${label} needs at least one Agent ID (24-character hex).`);
+        }
         return {
           atenxionUrl: assertHttpUrl(server.atenxionUrl, `${label} backend URL`),
           temporalUrl: assertHttpUrl(server.temporalUrl, `${label} Temporal URL`),
           atenxionToken,
+          agentIds,
         };
       });
     } catch (error) {

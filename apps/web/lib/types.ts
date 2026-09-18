@@ -10,6 +10,7 @@ export type DestinationConfig = {
   atenxionUrl: string;
   temporalUrl: string;
   atenxionToken: string;
+  agentIds: string[];
 };
 
 export type PayloadPair = {
@@ -40,6 +41,7 @@ export type FileRecord = {
 export type ItemStatus =
   | "pending"
   | "sending"
+  | "running"
   | "polling"
   | "sent"
   | "failed"
@@ -178,18 +180,30 @@ export function formatWhen(value?: string) {
   });
 }
 
+function normalizeItemStatus(status: string) {
+  if (status === "polling") return "running";
+  return status;
+}
+
 export function itemCounts(items: DispatchItem[]) {
+  const normalized = items.map((item) => normalizeItemStatus(item.status));
+  const waiting = normalized.filter((status) => status === "pending").length;
+  const sending = normalized.filter((status) => status === "sending").length;
+  const processing = normalized.filter((status) => status === "running").length;
+  const failed = normalized.filter((status) => status === "failed").length;
+  const done = normalized.filter((status) => status === "sent").length;
+  const cancelled = normalized.filter((status) => status === "cancelled").length;
+  const finished = done + failed + cancelled;
   return {
     total: items.length,
-    done: items.filter((item) => item.status === "sent").length,
-    finished: items.filter((item) =>
-      ["sent", "failed", "cancelled"].includes(item.status)
-    ).length,
-    running: items.filter((item) =>
-      ["sending", "polling"].includes(item.status)
-    ).length,
-    waiting: items.filter((item) => item.status === "pending").length,
-    failed: items.filter((item) => item.status === "failed").length,
+    done,
+    finished,
+    running: processing + sending,
+    processing,
+    sending,
+    waiting,
+    failed,
+    cancelled,
   };
 }
 
@@ -204,9 +218,23 @@ export function submissionCounts(job: JobRecord) {
 }
 
 export function statusLabel(status: string) {
-  if (status === "sent") return "done";
-  if (status === "polling") return "running";
-  if (status === "sending") return "sending";
-  if (status === "pending") return "waiting";
-  return status.replace(/_/g, " ");
+  const normalized = normalizeItemStatus(status);
+  if (normalized === "sent") return "done";
+  if (normalized === "running") return "running";
+  if (normalized === "sending") return "sending";
+  if (normalized === "pending") return "waiting";
+  if (normalized === "failed") return "failed";
+  if (normalized === "cancelled") return "cancelled";
+  return normalized.replace(/_/g, " ");
+}
+
+export function itemStatusLabel(status: string, jobComplete: boolean) {
+  const normalized = normalizeItemStatus(status);
+  if (normalized === "sent" || (jobComplete && normalized === "running")) return "done";
+  if (normalized === "failed") return "failed";
+  if (normalized === "cancelled") return "cancelled";
+  if (normalized === "sending") return "sending";
+  if (normalized === "running") return "running";
+  if (normalized === "pending") return "waiting";
+  return normalized;
 }

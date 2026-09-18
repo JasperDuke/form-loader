@@ -5,6 +5,7 @@ const serverConfigSchema = new mongoose.Schema(
     atenxionUrl: { type: String, default: "" },
     temporalUrl: { type: String, default: "" },
     atenxionToken: { type: String, default: "" },
+    agentIds: { type: [String], default: [] },
   },
   { _id: true }
 );

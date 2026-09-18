@@ -11,7 +11,13 @@ export const EMPTY_DESTINATION: DestinationConfig = {
   atenxionUrl: "",
   temporalUrl: "",
   atenxionToken: "",
+  agentIds: [""],
 };
+
+function asAgentIds(input: unknown): string[] {
+  if (!Array.isArray(input) || !input.length) return [""];
+  return input.map((id) => String(id || ""));
+}
 
 export const EMPTY_PAYLOAD_PAIR: PayloadPair = { key: "", value: "" };
 
@@ -42,6 +48,7 @@ function asServers(config: Partial<AppConfig> & {
       atenxionUrl: String(server.atenxionUrl || ""),
       temporalUrl: String(server.temporalUrl || ""),
       atenxionToken: String(server.atenxionToken || ""),
+      agentIds: asAgentIds(server.agentIds),
     }));
   }
   if (config.atenxionUrl || config.temporalUrl || config.atenxionToken) {
@@ -50,6 +57,7 @@ function asServers(config: Partial<AppConfig> & {
         atenxionUrl: String(config.atenxionUrl || ""),
         temporalUrl: String(config.temporalUrl || ""),
         atenxionToken: String(config.atenxionToken || ""),
+        agentIds: [""],
       },
     ];
   }
@@ -83,6 +91,7 @@ export async function saveConfig(config: AppConfig) {
       atenxionUrl: normalizeAtenxionUrl(server.atenxionUrl),
       temporalUrl: normalizeAtenxionUrl(server.temporalUrl),
       atenxionToken: server.atenxionToken.trim(),
+      agentIds: server.agentIds.map((id) => id.trim().toLowerCase()).filter(Boolean),
     })),
     maxConcurrent: Number(config.maxConcurrent),
     includeDocId: Boolean(config.includeDocId),
@@ -176,6 +185,15 @@ export function validateConfig(config: AppConfig) {
       }
     } catch {
       return `${label} has an invalid URL.`;
+    }
+    const agentIds = server.agentIds.map((id) => id.trim().toLowerCase()).filter(Boolean);
+    if (!agentIds.length) {
+      return `${label} needs at least one Agent ID.`;
+    }
+    for (const agentId of agentIds) {
+      if (!/^[a-f0-9]{24}$/.test(agentId)) {
+        return `${label} Agent ID "${agentId}" must be a 24-character hex ObjectId.`;
+      }
     }
   }
   return null;

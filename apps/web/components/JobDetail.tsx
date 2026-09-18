@@ -8,6 +8,7 @@ import {
   hostOf,
   isActiveStatus,
   itemCounts,
+  itemStatusLabel,
   jobServers,
   statusLabel,
   submissionCounts,
@@ -42,8 +43,10 @@ export function JobDetail({ job, onBack, onUpdated, onDeleted }: Props) {
   const totals = submissionCounts(job);
   const selectedCounts = itemCounts(selected?.items || []);
   const canCancel = isActiveStatus(job.status);
-  const overallProgress =
-    ((totals.done + totals.failed) / Math.max(totals.total, 1)) * 100;
+  const jobComplete = !canCancel;
+  const overallProgress = jobComplete
+    ? ((totals.done + totals.failed) / Math.max(totals.total, 1)) * 100
+    : ((totals.total - totals.waiting) / Math.max(totals.total, 1)) * 100;
 
   async function onCancel() {
     setCancelling(true);
@@ -121,10 +124,22 @@ export function JobDetail({ job, onBack, onUpdated, onDeleted }: Props) {
           <div className="h-full bg-ink" style={{ width: `${overallProgress}%` }} />
         </div>
         <p className="mt-2 text-sm">
-          {statusLabel(job.status)} · {totals.done}/{totals.total} done
-          {totals.running ? ` · ${totals.running} running` : ""}
-          {totals.waiting ? ` · ${totals.waiting} waiting` : ""}
-          {totals.failed ? ` · ${totals.failed} failed` : ""}
+          {statusLabel(job.status)}
+          {jobComplete ? (
+            <>
+              {" "}
+              · {totals.done}/{totals.total} done
+              {totals.failed ? ` · ${totals.failed} failed` : ""}
+            </>
+          ) : (
+            <>
+              {" "}
+              · {totals.processing} processing
+              {totals.waiting ? ` · ${totals.waiting} waiting` : ""}
+              {totals.sending ? ` · ${totals.sending} sending` : ""}
+              {totals.failed ? ` · ${totals.failed} failed` : ""}
+            </>
+          )}
         </p>
         {job.filesDeleted ? (
           <p className="mt-1 text-xs text-muted">
@@ -158,9 +173,9 @@ export function JobDetail({ job, onBack, onUpdated, onDeleted }: Props) {
               </p>
               <p className="mt-1 truncate text-sm">{hostOf(server.atenxionUrl)}</p>
               <p className="mt-1 text-[11px] uppercase tracking-[0.14em]">
-                {counts.done}/{counts.total} done
-                {counts.running ? ` · ${counts.running} running` : ""}
-                {counts.waiting && !counts.running ? ` · ${counts.waiting} waiting` : ""}
+                {jobComplete
+                  ? `${counts.done}/${counts.total} done`
+                  : `${counts.processing} processing · ${counts.waiting} waiting`}
               </p>
             </button>
           );
@@ -173,16 +188,29 @@ export function JobDetail({ job, onBack, onUpdated, onDeleted }: Props) {
             <div className="mb-4 flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted">
               <span>{hostOf(selected.atenxionUrl)}</span>
               <span>{statusLabel(selected.status)}</span>
-              <span>{selectedCounts.running} running</span>
-              <span>{selectedCounts.waiting} waiting</span>
-              <span>{selectedCounts.done} done</span>
-              {selectedCounts.failed ? <span>{selectedCounts.failed} failed</span> : null}
+              {jobComplete ? (
+                <>
+                  <span>{selectedCounts.done} done</span>
+                  {selectedCounts.failed ? (
+                    <span>{selectedCounts.failed} failed</span>
+                  ) : null}
+                </>
+              ) : (
+                <>
+                  <span>{selectedCounts.processing} processing</span>
+                  <span>{selectedCounts.waiting} waiting</span>
+                  {selectedCounts.failed ? (
+                    <span>{selectedCounts.failed} failed</span>
+                  ) : null}
+                </>
+              )}
             </div>
             <ul className="divide-y divide-line rounded-md border border-line">
               {selected.items.map((item) => (
                 <ItemRow
                   key={item._id}
                   item={item}
+                  jobComplete={jobComplete}
                   filesRemoved={Boolean(job.filesDeleted)}
                   onPreview={(file) => setPreview(file)}
                 />
@@ -201,10 +229,12 @@ export function JobDetail({ job, onBack, onUpdated, onDeleted }: Props) {
 
 function ItemRow({
   item,
+  jobComplete,
   filesRemoved,
   onPreview,
 }: {
   item: DispatchItem;
+  jobComplete: boolean;
   filesRemoved: boolean;
   onPreview: (file: FileRecord) => void;
 }) {
@@ -212,6 +242,7 @@ function ItemRow({
   const live =
     item.status === "sending" ||
     item.status === "pending" ||
+    item.status === "running" ||
     item.status === "polling";
   const gone = filesRemoved || Boolean(file?.removedAt);
 
@@ -226,11 +257,6 @@ function ItemRow({
             {file ? formatBytes(file.size) : ""}
             {item.docId ? ` · ${item.docId}` : ""}
           </p>
-          {item.workflowId ? (
-            <p className="mt-1 truncate font-mono text-[11px] text-muted">
-              {item.workflowId}
-            </p>
-          ) : null}
           {item.error ? <p className="mt-1 text-xs">{item.error}</p> : null}
         </div>
         <div className="flex shrink-0 items-center gap-3">
@@ -239,7 +265,7 @@ function ItemRow({
               live ? "pulse-dot" : ""
             } ${item.status === "cancelled" ? "line-through text-muted" : ""}`}
           >
-            {statusLabel(item.status)}
+            {itemStatusLabel(item.status, jobComplete)}
           </span>
           {file && !gone ? (
             <>
